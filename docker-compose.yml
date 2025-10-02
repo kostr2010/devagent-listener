@@ -14,11 +14,11 @@ services:
       - listener_db
 
   listener_db:
-    image: postgres
+    image: postgres:15.1-alpine3.16
     container_name: listener_db
     env_file: secrets.env
     # docker port must match the one in secrets.env
-    command: -p 5555
+    command: -p 5555 -c 'max_connections=200'
     ports:
       - "5555:5555"
     restart: always
