@@ -39,13 +39,13 @@ class Task(SQL_BASE):
     # validate that task is one of predetermined kinds
     @sqlalchemy.orm.validates("task_kind")
     def validate_task_kind(self, key, value):
-        if not value in TaskKind:
+        if not value in [e.value for e in TaskKind]:
             raise ValueError(f"Invalid task_kind value {value}")
         return value
 
     # validate that status is one of predetermined kinds
     @sqlalchemy.orm.validates("task_status")
     def validate_task_status(self, key, value):
-        if not value in TaskStatus:
+        if not value in [e.value for e in TaskStatus]:
             raise ValueError(f"Invalid task_kind value {value}")
         return value
