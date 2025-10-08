@@ -14,6 +14,7 @@ class TaskStatus(enum.IntEnum):
     TASK_STATUS_IN_PROGRESS = 0  # Task is in progress
     TASK_STATUS_DONE = 1  # Task completed successfully
     TASK_STATUS_ERROR = 2  # Task completed abnormally
+    TASK_STATUS_ABORTED = 3  # Task execution was aborted
 
 
 class Task(SQL_BASE):

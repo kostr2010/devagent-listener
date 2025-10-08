@@ -3,6 +3,7 @@ import sqlalchemy.ext.asyncio
 import sqlalchemy.future
 import validators
 import enum
+import datetime
 
 from .database import SQL_SESSION
 from .models import Task, TaskKind, TaskStatus
@@ -88,13 +89,54 @@ def api_v1_devagent_validate_action(kind: str | None) -> None:
         )
 
 
-def api_v1_devagent_process_task_code_review_validate_payload(
+def api_v1_devagent_task_code_review_action_get_validate_payload(
     payload: str | None,
 ) -> None:
     if payload == None:
         raise fastapi.HTTPException(
             status_code=400,
-            detail=f"Expected non-empty value for {API_V1_DEVAGENT_REQUEST_PARAM_PAYLOAD} parameter if {API_V1_DEVAGENT_REQUEST_PARAM_TASK_KIND}={TaskKind.TASK_KIND_CODE_REVIEW.value}",
+            detail=f"Expected non-empty value for {API_V1_DEVAGENT_REQUEST_PARAM_PAYLOAD} parameter if {API_V1_DEVAGENT_REQUEST_PARAM_TASK_KIND}={TaskKind.TASK_KIND_CODE_REVIEW.value} and {API_V1_DEVAGENT_REQUEST_PARAM_ACTION}={Action.ACTION_GET.value}",
+        )
+
+    if not payload.isdigit():
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=f"Invalid task id passed in {API_V1_DEVAGENT_REQUEST_PARAM_PAYLOAD} parameter: {API_V1_DEVAGENT_REQUEST_PARAM_PAYLOAD}={payload}",
+        )
+
+
+async def api_v1_devagent_task_code_review_action_get(
+    request: fastapi.Request,
+    db: sqlalchemy.ext.asyncio.AsyncSession,
+):
+    task_id = request.query_params.get(API_V1_DEVAGENT_REQUEST_PARAM_PAYLOAD)
+    api_v1_devagent_task_code_review_action_get_validate_payload(task_id)
+
+    existing_task_result = await db.execute(
+        sqlalchemy.future.select(Task).where(
+            Task.task_kind == TaskKind.TASK_KIND_CODE_REVIEW.value,
+            Task.task_id == int(task_id),
+        )
+    )
+
+    existing_task = existing_task_result.scalars().first()
+
+    if existing_task == None:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=f"No task with task_id={task_id} found",
+        )
+
+    return existing_task
+
+
+def api_v1_devagent_task_code_review_action_run_validate_payload(
+    payload: str | None,
+) -> None:
+    if payload == None:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=f"Expected non-empty value for {API_V1_DEVAGENT_REQUEST_PARAM_PAYLOAD} parameter if {API_V1_DEVAGENT_REQUEST_PARAM_TASK_KIND}={TaskKind.TASK_KIND_CODE_REVIEW.value} and {API_V1_DEVAGENT_REQUEST_PARAM_ACTION}={Action.ACTION_RUN.value}",
         )
 
     if not validators.url(payload):
@@ -112,48 +154,33 @@ def api_v1_devagent_process_task_code_review_validate_payload(
     # TODO: add more verification
 
 
-async def api_v1_devagent_process_task_code_review_get(
+async def api_v1_devagent_task_code_review_action_run(
     request: fastapi.Request,
     db: sqlalchemy.ext.asyncio.AsyncSession,
 ):
     url = request.query_params.get(API_V1_DEVAGENT_REQUEST_PARAM_PAYLOAD)
-    api_v1_devagent_process_task_code_review_validate_payload(url)
+    api_v1_devagent_task_code_review_action_run_validate_payload(url)
 
     existing_task_result = await db.execute(
         sqlalchemy.future.select(Task).where(
             Task.task_kind == TaskKind.TASK_KIND_CODE_REVIEW.value,
             Task.payload == url,
+            Task.task_status == TaskStatus.TASK_STATUS_IN_PROGRESS.value,
         )
     )
 
-    existing_task = existing_task_result.scalars().first()
-
-    return existing_task
-
-
-async def api_v1_devagent_process_task_code_review_rerun(
-    request: fastapi.Request,
-    db: sqlalchemy.ext.asyncio.AsyncSession,
-):
-    url = request.query_params.get(API_V1_DEVAGENT_REQUEST_PARAM_PAYLOAD)
-    api_v1_devagent_process_task_code_review_validate_payload(url)
-
-    existing_task_result = await db.execute(
-        sqlalchemy.future.select(Task).where(
-            Task.task_kind == TaskKind.TASK_KIND_CODE_REVIEW.value,
-            Task.payload == url,
-        )
-    )
-    db_item = existing_task_result.scalars().first()
-    if db_item != None:
-        await db.delete(db_item)
+    for db_item in existing_task_result.scalars():
+        db_item.task_status = TaskStatus.TASK_STATUS_ABORTED.value
+        db_item.updated_at = sqlalchemy.text("now()")
         await db.commit()
+        await db.refresh(db_item)
 
     new_task = Task(
         payload=url,
         task_kind=TaskKind.TASK_KIND_CODE_REVIEW.value,
         task_status=TaskStatus.TASK_STATUS_IN_PROGRESS.value,
     )
+
     db.add(new_task)
 
     await db.commit()
@@ -162,20 +189,16 @@ async def api_v1_devagent_process_task_code_review_rerun(
     return new_task
 
 
-async def api_v1_devagent_process_task_code_review(
+async def api_v1_devagent_task_code_review(
     request: fastapi.Request,
     db: sqlalchemy.ext.asyncio.AsyncSession,
 ):
     action = request.query_params.get(API_V1_DEVAGENT_REQUEST_PARAM_ACTION)
 
     if action == str(Action.ACTION_GET.value):
-        return await api_v1_devagent_process_task_code_review_get(
-            request=request, db=db
-        )
+        return await api_v1_devagent_task_code_review_action_get(request=request, db=db)
     elif action == str(Action.ACTION_RUN.value):
-        return await api_v1_devagent_process_task_code_review_rerun(
-            request=request, db=db
-        )
+        return await api_v1_devagent_task_code_review_action_run(request=request, db=db)
     else:
         raise fastapi.HTTPException(
             status_code=500,
@@ -190,7 +213,7 @@ async def api_v1_devagent_process_task(
 ):
     task_kind = request.query_params.get(API_V1_DEVAGENT_REQUEST_PARAM_TASK_KIND)
     if task_kind == str(TaskKind.TASK_KIND_CODE_REVIEW.value):
-        return await api_v1_devagent_process_task_code_review(request=request, db=db)
+        return await api_v1_devagent_task_code_review(request=request, db=db)
     else:
         raise fastapi.HTTPException(
             status_code=500,
