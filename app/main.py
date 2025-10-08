@@ -3,11 +3,11 @@ import sqlalchemy.ext.asyncio
 import sqlalchemy.future
 import validators
 import enum
-import datetime
 
 from .database import SQL_SESSION
 from .models import Task, TaskKind, TaskStatus
 from .request_param import RequestParam, validate_request_params, register_request_param
+from .devagent import devagent_task_code_review_action_run
 
 
 async def get_db():
@@ -33,6 +33,7 @@ API_V1_DEVAGENT_REQUEST_PARAM_PAYLOAD = "payload"
 async def start_review(
     response: fastapi.Response,
     request: fastapi.Request,
+    background_tasks: fastapi.BackgroundTasks,
     db: sqlalchemy.ext.asyncio.AsyncSession = fastapi.Depends(get_db),
 ):
     # TODO: add secret key validation
@@ -58,7 +59,9 @@ async def start_review(
     )
     validate_request_params(params=params, request=request)
 
-    return await api_v1_devagent_process_task(response=response, request=request, db=db)
+    return await api_v1_devagent_process_task(
+        response=response, request=request, background_tasks=background_tasks, db=db
+    )
 
 
 def api_v1_devagent_validate_task_kind(kind: str | None) -> None:
@@ -156,6 +159,7 @@ def api_v1_devagent_task_code_review_action_run_validate_payload(
 
 async def api_v1_devagent_task_code_review_action_run(
     request: fastapi.Request,
+    background_tasks: fastapi.BackgroundTasks,
     db: sqlalchemy.ext.asyncio.AsyncSession,
 ):
     url = request.query_params.get(API_V1_DEVAGENT_REQUEST_PARAM_PAYLOAD)
@@ -164,19 +168,17 @@ async def api_v1_devagent_task_code_review_action_run(
     existing_task_result = await db.execute(
         sqlalchemy.future.select(Task).where(
             Task.task_kind == TaskKind.TASK_KIND_CODE_REVIEW.value,
-            Task.payload == url,
+            Task.task_payload == url,
             Task.task_status == TaskStatus.TASK_STATUS_IN_PROGRESS.value,
         )
     )
 
-    for db_item in existing_task_result.scalars():
-        db_item.task_status = TaskStatus.TASK_STATUS_ABORTED.value
-        db_item.updated_at = sqlalchemy.text("now()")
-        await db.commit()
-        await db.refresh(db_item)
+    existing_task = existing_task_result.scalars().first()
+    if existing_task != None:
+        return existing_task
 
     new_task = Task(
-        payload=url,
+        task_payload=url,
         task_kind=TaskKind.TASK_KIND_CODE_REVIEW.value,
         task_status=TaskStatus.TASK_STATUS_IN_PROGRESS.value,
     )
@@ -186,11 +188,16 @@ async def api_v1_devagent_task_code_review_action_run(
     await db.commit()
     await db.refresh(new_task)
 
+    background_tasks.add_task(
+        devagent_task_code_review_action_run, task_id=new_task.task_id, url=url, db=db
+    )
+
     return new_task
 
 
 async def api_v1_devagent_task_code_review(
     request: fastapi.Request,
+    background_tasks: fastapi.BackgroundTasks,
     db: sqlalchemy.ext.asyncio.AsyncSession,
 ):
     action = request.query_params.get(API_V1_DEVAGENT_REQUEST_PARAM_ACTION)
@@ -198,7 +205,9 @@ async def api_v1_devagent_task_code_review(
     if action == str(Action.ACTION_GET.value):
         return await api_v1_devagent_task_code_review_action_get(request=request, db=db)
     elif action == str(Action.ACTION_RUN.value):
-        return await api_v1_devagent_task_code_review_action_run(request=request, db=db)
+        return await api_v1_devagent_task_code_review_action_run(
+            request=request, background_tasks=background_tasks, db=db
+        )
     else:
         raise fastapi.HTTPException(
             status_code=500,
@@ -209,11 +218,14 @@ async def api_v1_devagent_task_code_review(
 async def api_v1_devagent_process_task(
     response: fastapi.Response,
     request: fastapi.Request,
+    background_tasks: fastapi.BackgroundTasks,
     db: sqlalchemy.ext.asyncio.AsyncSession,
 ):
     task_kind = request.query_params.get(API_V1_DEVAGENT_REQUEST_PARAM_TASK_KIND)
     if task_kind == str(TaskKind.TASK_KIND_CODE_REVIEW.value):
-        return await api_v1_devagent_task_code_review(request=request, db=db)
+        return await api_v1_devagent_task_code_review(
+            request=request, background_tasks=background_tasks, db=db
+        )
     else:
         raise fastapi.HTTPException(
             status_code=500,

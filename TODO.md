@@ -1,0 +1,2 @@
+- [ ] Add secret key validation for the requests
+- [ ] Add TTL parameter to the database entries

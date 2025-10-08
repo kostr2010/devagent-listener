@@ -1,8 +1,8 @@
-"""nigration message
+"""My migration message
 
-Revision ID: a694f3d5de78
+Revision ID: e0e201c42948
 Revises: 
-Create Date: 2025-10-02 17:04:46.451020
+Create Date: 2025-10-09 00:42:03.040037
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'a694f3d5de78'
+revision: str = 'e0e201c42948'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -25,7 +25,8 @@ def upgrade() -> None:
     sa.Column('task_id', sa.Integer(), nullable=False),
     sa.Column('task_kind', sa.Integer(), nullable=False),
     sa.Column('task_status', sa.Integer(), nullable=False),
-    sa.Column('payload', sa.String(), nullable=True),
+    sa.Column('task_payload', sa.String(), nullable=True),
+    sa.Column('task_result', sa.String(), nullable=True),
     sa.Column('created_at', sa.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('updated_at', sa.TIMESTAMP(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.PrimaryKeyConstraint('task_id'),

@@ -20,17 +20,25 @@ class TaskStatus(enum.IntEnum):
 class Task(SQL_BASE):
     __tablename__ = "tasks"
 
+    # unique identifier for the task, used to query status
     task_id = sqlalchemy.Column(
         sqlalchemy.Integer, primary_key=True, nullable=False, unique=True
     )
+    # kind of the task, used to start the routine
     task_kind = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
+    # status of the task, used to query status
     task_status = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
-    payload = sqlalchemy.Column(sqlalchemy.String, nullable=True)
+    # additional payload, specific to each task_kind
+    task_payload = sqlalchemy.Column(sqlalchemy.String, nullable=True)
+    # result after the task completion, specific to each task_status
+    task_result = sqlalchemy.Column(sqlalchemy.String, nullable=True)
+    # timestamp of the task creation
     created_at = sqlalchemy.Column(
         sqlalchemy.TIMESTAMP(timezone=True),
         nullable=False,
         server_default=sqlalchemy.text("now()"),
     )
+    # timestamp of the latest task update
     updated_at = sqlalchemy.Column(
         sqlalchemy.TIMESTAMP(timezone=True),
         nullable=False,
