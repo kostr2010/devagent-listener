@@ -153,14 +153,14 @@ async def devagent_task_code_review_action_run(
 
         review_result_tasks = []
         for gitcode_pr_file in gitcode_diff["files"]:
-            relevant_rules = []
+            relevant_rules = set()
             for dir, rules in dir_to_rules.items():
                 file_abspath = os.path.abspath(
                     os.path.join(repo_info.root, gitcode_pr_file["file"])
                 )
                 if dir != os.path.commonpath([dir, file_abspath]):
                     continue
-                relevant_rules += rules
+                relevant_rules.update(rules)
 
             if len(relevant_rules) == 0:
                 continue
