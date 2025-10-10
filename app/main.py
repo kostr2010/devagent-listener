@@ -3,6 +3,8 @@ import sqlalchemy.ext.asyncio
 import sqlalchemy.future
 import validators
 import enum
+import contextlib
+import multiprocessing
 
 from .database import SQL_SESSION
 from .models import Task, TaskKind, TaskStatus
@@ -16,7 +18,17 @@ async def get_db():
         await session.commit()
 
 
-listener = fastapi.FastAPI(debug=True)
+@contextlib.asynccontextmanager
+async def lifespan(app: fastapi.FastAPI):
+    print("Initializing listener pool")
+    app.state.listener_pool = multiprocessing.Pool(8)
+    yield
+    print("Closing listener pool")
+    app.state.listener_pool.close()
+    app.state.listener_pool.join()
+
+
+listener = fastapi.FastAPI(debug=True, lifespan=lifespan)
 
 
 class Action(enum.IntEnum):
@@ -189,7 +201,11 @@ async def api_v1_devagent_task_code_review_action_run(
     await db.refresh(new_task)
 
     background_tasks.add_task(
-        devagent_task_code_review_action_run, task_id=new_task.task_id, url=url, db=db
+        devagent_task_code_review_action_run,
+        task_id=new_task.task_id,
+        url=url,
+        db=db,
+        pool=request.app.state.listener_pool,
     )
 
     return new_task
