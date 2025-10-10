@@ -7,6 +7,7 @@ import os.path
 import os
 import urllib.parse
 import traceback
+import json
 
 from .models import Task, TaskStatus
 from .gitcode_pr import get_gitcode_pr
@@ -27,7 +28,13 @@ def run_devagent_review(patch: str, rule: str):
         print(f"patch: {patch}")
         print(f"stderr: {devagent_result.stderr}")
         print(f"stdout: {devagent_result.stdout}")
-        return {"result": devagent_result.stdout}
+
+        stderr = devagent_result.stderr.decode("utf-8")
+        if len(stderr) > 0 and "Error" in stderr:
+            return {"error": {"message": stderr, "patch": patch, "rule": rule}}
+
+        stdout = devagent_result.stdout.decode("utf-8")
+        return {"result": stdout}
     except Exception as e:
         return {"error": f"{str(e)}"}
 
@@ -51,14 +58,18 @@ def load_rules_config(repo_info: RepoInfo):
     return dir_to_rules
 
 
-def get_gitcode_diff(url: str):
+def parse_gitcode_pr_url(url: str):
     parsed_url = urllib.parse.urlparse(url)
     # ['', 'owner', 'repo', 'pull', 'pull_number']
     url_path = parsed_url.path.split("/")
-    owner = url_path[1]
-    repo = url_path[2]
-    pr_number = url_path[4]
-    gitcode_pr = get_gitcode_pr(owner, repo, pr_number)
+    return {"owner": url_path[1], "repo": url_path[2], "pr_number": url_path[4]}
+
+
+def get_gitcode_diff(url: str):
+    parsed_url = parse_gitcode_pr_url(url)
+    gitcode_pr = get_gitcode_pr(
+        parsed_url["owner"], parsed_url["repo"], parsed_url["pr_number"]
+    )
 
     if "error" in gitcode_pr:
         return None
@@ -103,16 +114,13 @@ async def set_task_failed_in_db(
 
 
 def url_to_repo_info(url: str):
-    parsed_url = urllib.parse.urlparse(url)
-    # ['', 'owner', 'repo', 'pull', 'pull_number']
-    url_path = parsed_url.path.split("/")
-    repo = url_path[2]
+    parsed_url = parse_gitcode_pr_url(url)
 
-    if not repo:
+    if not parsed_url["repo"]:
         return None
 
     for repo_info in REPO_INFO:
-        if repo_info.repo == repo:
+        if repo_info.repo == parsed_url["repo"]:
             return repo_info
 
     return None
@@ -140,7 +148,7 @@ async def devagent_task_code_review_action_run(
             )
             return
 
-        # Later need to cache this
+        # TODO: Later need to cache this
         dir_to_rules = load_rules_config(repo_info)
 
         review_result_tasks = []
@@ -159,7 +167,7 @@ async def devagent_task_code_review_action_run(
 
             diff = gitcode_pr_file["diff"]
 
-            # Generate temp patch file while devagent can't parse input as string
+            # FIXME: remove this. generate temp patch file while devagent can't parse input as string
             temp = tempfile.NamedTemporaryFile(suffix=f".patch", delete=False)
             temp.write(diff.encode("utf-8"))
             patch = temp.name
@@ -174,13 +182,27 @@ async def devagent_task_code_review_action_run(
             for flattened_elem in elem
         ]
 
-        # update task after LLM finished work
+        results = []
+        errors = []
+        for elem in review_result_flat:
+            if "error" in elem:
+                errors.append(elem["error"])
+            elif "result" in elem:
+                results.append(json.loads(elem["result"]))
+            else:
+                print(f"Discarding element of the review result: {elem}")
+                continue
+
+        results_filtered = list(filter(lambda res: len(res["violations"]) > 0, results))
+
+        final_result = {"errors": errors, "results": results_filtered}
+
         await update_task_in_db(
-            TaskStatus.TASK_STATUS_DONE, str(review_result_flat), task_id, db
+            TaskStatus.TASK_STATUS_DONE, json.dumps(final_result), task_id, db
         )
     except Exception as e:
         await set_task_failed_in_db(
-            f"Unexpected error during processing of the task {str(e)}",
+            f"Unexpected error during processing of the task {str(e)}. Trace:\n{traceback.format_exc()}",
             task_id,
             db,
         )

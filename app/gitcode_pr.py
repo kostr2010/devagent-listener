@@ -31,6 +31,8 @@ def _convert_to_standard_diff(api_response: dict) -> list[dict[str, str]]:
         # Add diff header
         old_path = diff_item.get("statistic", {}).get("old_path", file_path)
         new_path = diff_item.get("statistic", {}).get("new_path", file_path)
+        # FIXME: remove when not needed
+        diff_lines.append(f"diff --git a/{old_path} b/{new_path}")
         diff_lines.append(f"--- a/{old_path}")
         diff_lines.append(f"+++ b/{new_path}")
 
