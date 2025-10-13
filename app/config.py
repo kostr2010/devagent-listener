@@ -9,9 +9,6 @@ class Settings(pydantic_settings.BaseSettings):
     POSTGRES_HOST: str
     POSTGRES_HOSTNAME: str
     GITCODE_TOKEN: str
-    RUNTIME_CORE_ROOT: str
-    ETS_FRONTEND_ROOT: str
-    DEVAGENT_WORKDIR: str
 
     class Config:
         env_file = "./secrets.env"

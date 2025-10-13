@@ -29,11 +29,6 @@ alembic upgrade head
 uvicorn app.main:listener --host localhost --port 8008 --reload
 ```
 
-For the `RUNTIME_CORE_ROOT` and `ETS_FRONTEND_ROOT` repositories, you may want to apply the followng patches that introduce basic infrastructure that is needed for correct operation of the listener:
-
-- https://gitcode.com/nazarovkonstantin/arkcompiler_ets_frontend/tree/feature/review_rules_test
-- https://gitcode.com/nazarovkonstantin/arkcompiler_runtime_core/tree/feature/review_rules_test
-
 ## Generate migration
 
 ```bash
