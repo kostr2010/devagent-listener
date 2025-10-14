@@ -10,6 +10,7 @@ import traceback
 import json
 import git
 import tempfile
+import asyncio
 
 from .models import Task, TaskStatus
 from .gitcode_pr import get_gitcode_pr
@@ -224,32 +225,44 @@ async def devagent_task_code_review_action_run(
     task_id: int, url: str, db: sqlalchemy.ext.asyncio.AsyncSession, pool
 ):
     try:
+        print(f"task {task_id} started with payload {url}")
+
         repo_info = url_to_repo_info(url)
         if not repo_info:
             raise Exception(f"Error during getting repo info for url {url}")
 
         with tempfile.TemporaryDirectory() as tmpdirname:
-            initialize_workdir(tmpdirname)
+            await asyncio.to_thread(initialize_workdir, tmpdirname)
 
-            pr_diff = get_gitcode_diff(url)
+            print(f"task {task_id} initialized workdir {tmpdirname}")
+
+            pr_diff = await asyncio.to_thread(get_gitcode_diff, url)
             if "error" in pr_diff:
                 raise Exception(f"Error during getting gitcode pr: {pr_diff['error']}")
 
+            print(f"task {task_id} got the diff for the {url}")
+
             devagent_workdir = os.path.abspath(os.path.join(tmpdirname, repo_info.repo))
 
-            review_result = devagent_review_gitcode_pr(
-                pr_diff, devagent_workdir, repo_info, pool
+            review_result = await asyncio.to_thread(
+                devagent_review_gitcode_pr, pr_diff, devagent_workdir, repo_info, pool
             )
+
+            print(f"task {task_id} finished review for the {url}")
 
             processed_review = devagent_review_postprocess(review_result)
 
             await update_task_in_db(
-                TaskStatus.TASK_STATUS_DONE, json.dumps(processed_review), task_id, db
+                TaskStatus.TASK_STATUS_DONE,
+                json.dumps(processed_review),
+                task_id,
+                db,
             )
+
+            print(f"task {task_id} updated status in db")
     except Exception as e:
         await set_task_failed_in_db(
             f"Unexpected error during processing of the task {str(e)}. Trace:\n{traceback.format_exc()}",
             task_id,
             db,
         )
-        print(traceback.format_exc())
