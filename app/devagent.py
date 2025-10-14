@@ -12,6 +12,8 @@ import git
 import tempfile
 import asyncio
 
+import time
+
 from .models import Task, TaskStatus
 from .gitcode_pr import get_gitcode_pr
 from .repo_info import SUPPORTED_REPOS, RepoInfo
@@ -19,21 +21,29 @@ from .repo_info import SUPPORTED_REPOS, RepoInfo
 
 def run_devagent_review(workdir: str, patch: str, rule: str):
     try:
+        tic = time.time()
+
         devagent_result = subprocess.run(
             ["devagent", "review", "--json", "--rule", rule, patch],
             capture_output=True,
             cwd=workdir,
         )
-        print(f"rule: {rule}")
-        print(f"patch: {patch}")
-        print(f"stderr: {devagent_result.stderr}")
-        print(f"stdout: {devagent_result.stdout}")
+        # print(f"rule: {rule}")
+        # print(f"patch: {patch}")
+        # print(f"stderr: {devagent_result.stderr}")
+        # print(f"stdout: {devagent_result.stdout}")
 
         stderr = devagent_result.stderr.decode("utf-8")
         if len(stderr) > 0 and "Error" in stderr:
             return {"error": {"message": stderr, "patch": patch, "rule": rule}}
 
         stdout = devagent_result.stdout.decode("utf-8")
+
+        toc = time.time()
+        print(
+            f"[measure] run_devagent_review({workdir}, {patch}, {rule}):/ elapsed: {toc - tic}"
+        )
+
         return {"result": stdout}
     except Exception as e:
         return {"error": f"{str(e)}"}
@@ -70,10 +80,15 @@ def parse_gitcode_pr_url(url: str):
 
 
 def get_gitcode_diff(url: str):
+    tic = time.time()
+
     parsed_url = parse_gitcode_pr_url(url)
     gitcode_pr = get_gitcode_pr(
         parsed_url["owner"], parsed_url["repo"], parsed_url["pr_number"]
     )
+
+    toc = time.time()
+    print(f"[measure] get_gitcode_diff({url}):/ elapsed: {toc - tic}")
 
     return gitcode_pr
 
@@ -139,6 +154,8 @@ def collect_relevant_rules(workdir: str, file: str, loaded_rules_config: dict):
 
 
 def initialize_workdir(workdir: str):
+    tic = time.time()
+
     # FIXME: replace with openharmony when integrating
     owner = "nazarovkonstantin"
     # FIXME: replace with necessary branch
@@ -148,11 +165,19 @@ def initialize_workdir(workdir: str):
         clone_dst = os.path.abspath(os.path.join(workdir, repo_info.repo))
         url = f"https://gitcode.com/{owner}/{repo_info.repo}.git"
 
-        repo = git.Repo.clone_from(url, clone_dst, allow_unsafe_protocols=True)
-        repo.git.checkout(branch)
+        git.Repo.clone_from(
+            url,
+            clone_dst,
+            allow_unsafe_protocols=True,
+            branch=branch,
+            depth=1,
+        )
+
+    toc = time.time()
+    print(f"[measure] initialize_workdir:/ elapsed: {toc - tic}")
 
 
-def devagent_schedule_diff_review(workdir: str, rules: list, diff: str, pool):
+async def devagent_schedule_diff_review(workdir: str, rules: list, diff: str, pool):
     # FIXME: remove this. generate temp patch file while devagent can't parse input as string
     temp = tempfile.NamedTemporaryFile(suffix=f".patch", delete=False)
     temp.write(diff.encode("utf-8"))
@@ -160,11 +185,15 @@ def devagent_schedule_diff_review(workdir: str, rules: list, diff: str, pool):
     temp.close()
 
     run_devagent = functools.partial(run_devagent_review, workdir, patch)
-    devagent_review_task = pool.map_async(run_devagent, rules)
-    return devagent_review_task
+
+    devagent_review_tasks = [asyncio.to_thread(run_devagent, rule) for rule in rules]
+
+    return devagent_review_tasks
 
 
-def devagent_review_gitcode_pr(pr_diff, workdir: str, repo_info: RepoInfo, pool):
+async def devagent_review_gitcode_pr(pr_diff, workdir: str, repo_info: RepoInfo, pool):
+    tic = time.time()
+
     # TODO: Later need to cache this
     rules_config = load_rules_config(workdir, repo_info)
     devagent_review_tasks = []
@@ -178,22 +207,27 @@ def devagent_review_gitcode_pr(pr_diff, workdir: str, repo_info: RepoInfo, pool)
         if len(relevant_rules) == 0:
             continue
 
-        devagent_review_task = devagent_schedule_diff_review(
+        devagent_review_task = await devagent_schedule_diff_review(
             workdir, relevant_rules, diff, pool
         )
 
         devagent_review_tasks.append(devagent_review_task)
 
     review_result_flat = [
-        flattened_elem
-        for elem in [r.get() for r in devagent_review_tasks]
-        for flattened_elem in elem
+        flattened_elem for elem in devagent_review_tasks for flattened_elem in elem
     ]
 
-    return review_result_flat
+    res = [await task for task in review_result_flat]
+
+    toc = time.time()
+    print(f"[measure] devagent_review_gitcode_pr:/ elapsed: {toc - tic}")
+
+    return res
 
 
 def devagent_review_postprocess(devagent_review: list):
+    tic = time.time()
+
     results = []
     errors = []
     for elem in devagent_review:
@@ -218,6 +252,9 @@ def devagent_review_postprocess(devagent_review: list):
 
     final_result = {"errors": errors, "results": results_filtered}
 
+    toc = time.time()
+    print(f"[measure] devagent_review_postprocess:/ elapsed: {toc - tic}")
+
     return final_result
 
 
@@ -225,8 +262,6 @@ async def devagent_task_code_review_action_run(
     task_id: int, url: str, db: sqlalchemy.ext.asyncio.AsyncSession, pool
 ):
     try:
-        print(f"task {task_id} started with payload {url}")
-
         repo_info = url_to_repo_info(url)
         if not repo_info:
             raise Exception(f"Error during getting repo info for url {url}")
@@ -234,21 +269,15 @@ async def devagent_task_code_review_action_run(
         with tempfile.TemporaryDirectory() as tmpdirname:
             await asyncio.to_thread(initialize_workdir, tmpdirname)
 
-            print(f"task {task_id} initialized workdir {tmpdirname}")
-
             pr_diff = await asyncio.to_thread(get_gitcode_diff, url)
             if "error" in pr_diff:
                 raise Exception(f"Error during getting gitcode pr: {pr_diff['error']}")
 
-            print(f"task {task_id} got the diff for the {url}")
-
             devagent_workdir = os.path.abspath(os.path.join(tmpdirname, repo_info.repo))
 
-            review_result = await asyncio.to_thread(
-                devagent_review_gitcode_pr, pr_diff, devagent_workdir, repo_info, pool
+            review_result = await devagent_review_gitcode_pr(
+                pr_diff, devagent_workdir, repo_info, pool
             )
-
-            print(f"task {task_id} finished review for the {url}")
 
             processed_review = devagent_review_postprocess(review_result)
 
@@ -258,8 +287,6 @@ async def devagent_task_code_review_action_run(
                 task_id,
                 db,
             )
-
-            print(f"task {task_id} updated status in db")
     except Exception as e:
         await set_task_failed_in_db(
             f"Unexpected error during processing of the task {str(e)}. Trace:\n{traceback.format_exc()}",
