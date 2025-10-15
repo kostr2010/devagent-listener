@@ -158,7 +158,6 @@ async def api_v1_devagent_task_code_review_action_run(
     background_tasks: fastapi.BackgroundTasks,
     payload: str | None,
     db: sqlalchemy.ext.asyncio.AsyncSession,
-    pool,
 ):
     api_v1_devagent_task_code_review_action_run_validate_payload(payload)
 
@@ -190,7 +189,6 @@ async def api_v1_devagent_task_code_review_action_run(
         task_id=new_task.task_id,
         url=payload,
         db=db,
-        pool=pool,
     )
 
     return new_task
@@ -210,7 +208,6 @@ async def api_v1_devagent_task_code_review(
             background_tasks=background_tasks,
             payload=payload,
             db=db,
-            pool=request.app.state.listener_pool,
         )
     else:
         raise fastapi.HTTPException(

@@ -28,10 +28,6 @@ def run_devagent_review(workdir: str, patch: str, rule: str):
             capture_output=True,
             cwd=workdir,
         )
-        # print(f"rule: {rule}")
-        # print(f"patch: {patch}")
-        # print(f"stderr: {devagent_result.stderr}")
-        # print(f"stdout: {devagent_result.stdout}")
 
         stderr = devagent_result.stderr.decode("utf-8")
         if len(stderr) > 0 and "Error" in stderr:
@@ -177,7 +173,7 @@ def initialize_workdir(workdir: str):
     print(f"[measure] initialize_workdir:/ elapsed: {toc - tic}")
 
 
-async def devagent_schedule_diff_review(workdir: str, rules: list, diff: str, pool):
+async def devagent_schedule_diff_review(workdir: str, rules: list, diff: str):
     # FIXME: remove this. generate temp patch file while devagent can't parse input as string
     temp = tempfile.NamedTemporaryFile(suffix=f".patch", delete=False)
     temp.write(diff.encode("utf-8"))
@@ -191,24 +187,36 @@ async def devagent_schedule_diff_review(workdir: str, rules: list, diff: str, po
     return devagent_review_tasks
 
 
-async def devagent_review_gitcode_pr(pr_diff, workdir: str, repo_info: RepoInfo, pool):
+async def devagent_review_gitcode_pr(pr_diff, workdir: str, repo_info: RepoInfo):
     tic = time.time()
 
-    # TODO: Later need to cache this
     rules_config = load_rules_config(workdir, repo_info)
-    devagent_review_tasks = []
+    rule_to_diffs = {}
 
     for gitcode_pr_file in pr_diff["files"]:
         file = gitcode_pr_file["file"]
-        diff = gitcode_pr_file["diff"]
 
         relevant_rules = collect_relevant_rules(workdir, file, rules_config)
 
         if len(relevant_rules) == 0:
             continue
 
+        for rule in relevant_rules:
+            if rule in rule_to_diffs:
+                rule_to_diffs[rule].append(gitcode_pr_file)
+            else:
+                rule_to_diffs[rule] = [gitcode_pr_file]
+
+    # for rule, diffs in rule_to_diffs.items():
+    #     print(f"{rule} -> {[diff['file'] for diff in diffs]}")
+
+    devagent_review_tasks = []
+
+    for rule, diffs in rule_to_diffs.items():
+        combined_diff = "\n\n".join([diff["diff"] for diff in diffs])
+
         devagent_review_task = await devagent_schedule_diff_review(
-            workdir, relevant_rules, diff, pool
+            workdir, [rule], combined_diff
         )
 
         devagent_review_tasks.append(devagent_review_task)
@@ -226,8 +234,6 @@ async def devagent_review_gitcode_pr(pr_diff, workdir: str, repo_info: RepoInfo,
 
 
 def devagent_review_postprocess(devagent_review: list):
-    tic = time.time()
-
     results = []
     errors = []
     for elem in devagent_review:
@@ -252,14 +258,11 @@ def devagent_review_postprocess(devagent_review: list):
 
     final_result = {"errors": errors, "results": results_filtered}
 
-    toc = time.time()
-    print(f"[measure] devagent_review_postprocess:/ elapsed: {toc - tic}")
-
     return final_result
 
 
 async def devagent_task_code_review_action_run(
-    task_id: int, url: str, db: sqlalchemy.ext.asyncio.AsyncSession, pool
+    task_id: int, url: str, db: sqlalchemy.ext.asyncio.AsyncSession
 ):
     try:
         repo_info = url_to_repo_info(url)
@@ -276,7 +279,7 @@ async def devagent_task_code_review_action_run(
             devagent_workdir = os.path.abspath(os.path.join(tmpdirname, repo_info.repo))
 
             review_result = await devagent_review_gitcode_pr(
-                pr_diff, devagent_workdir, repo_info, pool
+                pr_diff, devagent_workdir, repo_info
             )
 
             processed_review = devagent_review_postprocess(review_result)
