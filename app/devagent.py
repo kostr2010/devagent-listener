@@ -173,18 +173,14 @@ def initialize_workdir(workdir: str):
     print(f"[measure] initialize_workdir:/ elapsed: {toc - tic}")
 
 
-async def devagent_schedule_diff_review(workdir: str, rules: list, diff: str):
+async def devagent_schedule_diff_review(workdir: str, rule: str, diff: str):
     # FIXME: remove this. generate temp patch file while devagent can't parse input as string
     temp = tempfile.NamedTemporaryFile(suffix=f".patch", delete=False)
     temp.write(diff.encode("utf-8"))
     patch = temp.name
     temp.close()
 
-    run_devagent = functools.partial(run_devagent_review, workdir, patch)
-
-    devagent_review_tasks = [asyncio.to_thread(run_devagent, rule) for rule in rules]
-
-    return devagent_review_tasks
+    return asyncio.to_thread(run_devagent_review, workdir, patch, rule)
 
 
 async def devagent_review_gitcode_pr(pr_diff, workdir: str, repo_info: RepoInfo):
