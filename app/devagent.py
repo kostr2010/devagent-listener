@@ -212,16 +212,12 @@ async def devagent_review_gitcode_pr(pr_diff, workdir: str, repo_info: RepoInfo)
         combined_diff = "\n\n".join([diff["diff"] for diff in diffs])
 
         devagent_review_task = await devagent_schedule_diff_review(
-            workdir, [rule], combined_diff
+            workdir, rule, combined_diff
         )
 
         devagent_review_tasks.append(devagent_review_task)
 
-    review_result_flat = [
-        flattened_elem for elem in devagent_review_tasks for flattened_elem in elem
-    ]
-
-    res = [await task for task in review_result_flat]
+    res = [await task for task in devagent_review_tasks]
 
     toc = time.time()
     print(f"[measure] devagent_review_gitcode_pr:/ elapsed: {toc - tic}")

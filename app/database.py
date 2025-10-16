@@ -11,9 +11,7 @@ PG_DB = app_settings.POSTGRES_DB
 PG_URL = f"postgresql+asyncpg://{PG_USER}:{PG_PASS}@{PG_HOST}:{PG_PORT}/{PG_DB}"
 
 SQL_ENGINE = sqlalchemy.ext.asyncio.create_async_engine(
-    PG_URL,
-    echo=True,
-    future=True,
+    PG_URL, echo=True, future=True, pool_size=100, max_overflow=20
 )
 
 SQL_SESSION = sqlalchemy.ext.asyncio.async_sessionmaker(
