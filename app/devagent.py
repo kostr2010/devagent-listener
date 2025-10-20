@@ -16,6 +16,7 @@ import time
 
 from .models import Task, TaskStatus
 from .gitcode_pr import get_gitcode_pr
+from .gitee_pr import get_gitee_pr
 from .repo_info import SUPPORTED_REPOS, RepoInfo
 
 
@@ -68,25 +69,43 @@ def load_rules_config(workdir: str, repo_info: RepoInfo):
     return dir_to_rules
 
 
-def parse_gitcode_pr_url(url: str):
+def parse_pr_url(url: str):
     parsed_url = urllib.parse.urlparse(url)
     # ['', 'owner', 'repo', 'pull', 'pr_number']
     url_path = parsed_url.path.split("/")
     return {"owner": url_path[1], "repo": url_path[2], "pr_number": url_path[4]}
 
 
-def get_gitcode_diff(url: str):
+async def get_diff(url: str):
+    pr_getter = None
+
+    if "gitcode" in url:
+        pr_getter = get_gitcode_pr
+    elif "gitee" in url:
+        pr_getter = get_gitee_pr
+
     tic = time.time()
 
-    parsed_url = parse_gitcode_pr_url(url)
-    gitcode_pr = get_gitcode_pr(
-        parsed_url["owner"], parsed_url["repo"], parsed_url["pr_number"]
-    )
+    parsed_url = parse_pr_url(url)
+
+    gitee_pr = None
+    tries_left = 5
+    should_retry = True
+
+    while should_retry:
+        gitee_pr = pr_getter(
+            parsed_url["owner"], parsed_url["repo"], parsed_url["pr_number"]
+        )
+        if gitee_pr == None or ("error" in gitee_pr and tries_left > 0):
+            tries_left -= 1
+            await asyncio.sleep(5 * (5 - tries_left))
+        else:
+            should_retry = False
 
     toc = time.time()
-    print(f"[measure] get_gitcode_diff({url}):/ elapsed: {toc - tic}")
+    print(f"[measure] get_diff({url}):/ elapsed: {toc - tic}")
 
-    return gitcode_pr
+    return gitee_pr
 
 
 async def update_task_in_db(
@@ -126,7 +145,7 @@ async def set_task_failed_in_db(
 
 
 def url_to_repo_info(url: str):
-    parsed_url = parse_gitcode_pr_url(url)
+    parsed_url = parse_pr_url(url)
     repo = parsed_url["repo"]
 
     if not repo:
@@ -149,9 +168,10 @@ def collect_relevant_rules(workdir: str, file: str, loaded_rules_config: dict):
     return relevant_rules
 
 
-def initialize_workdir(workdir: str):
+async def initialize_workdir(workdir: str):
     tic = time.time()
 
+    remote = "gitcode"
     # FIXME: replace with openharmony when integrating
     owner = "nazarovkonstantin"
     # FIXME: replace with necessary branch
@@ -159,15 +179,28 @@ def initialize_workdir(workdir: str):
 
     for repo_info in SUPPORTED_REPOS:
         clone_dst = os.path.abspath(os.path.join(workdir, repo_info.repo))
-        url = f"https://gitcode.com/{owner}/{repo_info.repo}.git"
+        url = f"https://{remote}.com/{owner}/{repo_info.repo}.git"
 
-        git.Repo.clone_from(
-            url,
-            clone_dst,
-            allow_unsafe_protocols=True,
-            branch=branch,
-            depth=1,
-        )
+        should_retry = True
+        tries_left = 5
+
+        while should_retry:
+            try:
+                git.Repo.clone_from(
+                    url,
+                    clone_dst,
+                    allow_unsafe_protocols=True,
+                    branch=branch,
+                    depth=1,
+                )
+            except Exception as e:
+                if tries_left > 0:
+                    tries_left -= 1
+                    await asyncio.sleep(5 * (5 - tries_left))
+                else:
+                    raise e
+            else:
+                should_retry = False
 
     toc = time.time()
     print(f"[measure] initialize_workdir:/ elapsed: {toc - tic}")
@@ -183,14 +216,14 @@ async def devagent_schedule_diff_review(workdir: str, rule: str, diff: str):
     return asyncio.to_thread(run_devagent_review, workdir, patch, rule)
 
 
-async def devagent_review_gitcode_pr(pr_diff, workdir: str, repo_info: RepoInfo):
+async def devagent_review_pr(pr_diff, workdir: str, repo_info: RepoInfo):
     tic = time.time()
 
     rules_config = load_rules_config(workdir, repo_info)
     rule_to_diffs = {}
 
-    for gitcode_pr_file in pr_diff["files"]:
-        file = gitcode_pr_file["file"]
+    for pr_diff_file in pr_diff["files"]:
+        file = pr_diff_file["file"]
 
         relevant_rules = collect_relevant_rules(workdir, file, rules_config)
 
@@ -199,9 +232,9 @@ async def devagent_review_gitcode_pr(pr_diff, workdir: str, repo_info: RepoInfo)
 
         for rule in relevant_rules:
             if rule in rule_to_diffs:
-                rule_to_diffs[rule].append(gitcode_pr_file)
+                rule_to_diffs[rule].append(pr_diff_file)
             else:
-                rule_to_diffs[rule] = [gitcode_pr_file]
+                rule_to_diffs[rule] = [pr_diff_file]
 
     # for rule, diffs in rule_to_diffs.items():
     #     print(f"{rule} -> {[diff['file'] for diff in diffs]}")
@@ -220,7 +253,7 @@ async def devagent_review_gitcode_pr(pr_diff, workdir: str, repo_info: RepoInfo)
     res = [await task for task in devagent_review_tasks]
 
     toc = time.time()
-    print(f"[measure] devagent_review_gitcode_pr:/ elapsed: {toc - tic}")
+    print(f"[measure] devagent_review_pr:/ elapsed: {toc - tic}")
 
     return res
 
@@ -262,15 +295,15 @@ async def devagent_task_code_review_action_run(
             raise Exception(f"Error during getting repo info for url {url}")
 
         with tempfile.TemporaryDirectory() as tmpdirname:
-            await asyncio.to_thread(initialize_workdir, tmpdirname)
+            await initialize_workdir(tmpdirname)
 
-            pr_diff = await asyncio.to_thread(get_gitcode_diff, url)
+            pr_diff = await get_diff(url)
             if "error" in pr_diff:
-                raise Exception(f"Error during getting gitcode pr: {pr_diff['error']}")
+                raise Exception(f"Error during getting pr diff: {pr_diff['error']}")
 
             devagent_workdir = os.path.abspath(os.path.join(tmpdirname, repo_info.repo))
 
-            review_result = await devagent_review_gitcode_pr(
+            review_result = await devagent_review_pr(
                 pr_diff, devagent_workdir, repo_info
             )
 

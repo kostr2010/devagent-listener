@@ -20,7 +20,7 @@ async def get_db():
 @contextlib.asynccontextmanager
 async def lifespan(app: fastapi.FastAPI):
     print("Initializing listener pool")
-    app.state.listener_pool = multiprocessing.Pool(8)
+    app.state.listener_pool = multiprocessing.Pool(16)
     yield
     print("Closing listener pool")
     app.state.listener_pool.close()
@@ -145,7 +145,7 @@ def api_v1_devagent_task_code_review_action_run_validate_payload(
             detail=f"Invalid url passed in payload: payload={payload}",
         )
 
-    if not "gitcode" in payload:
+    if not ("gitcode" in payload or "gitee" in payload):
         raise fastapi.HTTPException(
             status_code=400,
             detail=f"Expected gitcode url, got payload={payload}",
