@@ -10,6 +10,9 @@ class Settings(pydantic_settings.BaseSettings):
     POSTGRES_HOSTNAME: str
     GITCODE_TOKEN: str
     GITEE_TOKEN: str
+    DEVAGENT_PROVIDER: str
+    DEVAGENT_MODEL: str
+    DEVAGENT_API_KEY: str
 
     class Config:
         env_file = "./secrets.env"

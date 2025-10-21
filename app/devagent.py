@@ -186,7 +186,8 @@ async def initialize_workdir(workdir: str):
 
         while should_retry:
             try:
-                git.Repo.clone_from(
+                await asyncio.to_thread(
+                    git.Repo.clone_from,
                     url,
                     clone_dst,
                     allow_unsafe_protocols=True,
