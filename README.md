@@ -8,14 +8,26 @@
 ## Setup
 
 ```bash
-python -m venv venv
-source venv/bin/activate
+python -m venv venv-devagent-listener
+source venv-devagent-listener/bin/activate
 pip install -r requirements.txt
 ```
 
 ## Run
 
-Edit `serets.env` according to your desired values. value for `POSTGRES_HOSTNAME` can be found like this:
+First, edit `serets.env` according to your desired values. Value for `POSTGRES_HOSTNAME` can be left empty for now
+
+```bash
+cp sercets.env.example secrets.env
+```
+
+Then, build your database
+
+```bash
+make db
+```
+
+Edit value for `POSTGRES_HOSTNAME` in `serets.env`. Correct value can be found like this:
 
 ```bash
 docker inspect listener_db  | grep Gateway
@@ -24,9 +36,7 @@ docker inspect listener_db  | grep Gateway
 After that, run
 
 ```bash
-docker compose up listener_db -d
-alembic upgrade head
-uvicorn app.main:listener --host localhost --port 8008 --reload
+make app
 ```
 
 ## Generate migration
