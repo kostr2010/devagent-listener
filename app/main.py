@@ -5,6 +5,9 @@ import validators
 import enum
 import contextlib
 import multiprocessing
+import asyncio
+import alembic
+import alembic.config
 
 from .database import SQL_SESSION
 from .models import Task, TaskKind, TaskStatus
@@ -17,10 +20,17 @@ async def get_db():
         await session.commit()
 
 
+async def run_migrations():
+    cfg = alembic.config.Config("alembic.ini")
+    await asyncio.to_thread(alembic.command.upgrade, cfg, "head")
+
+
 @contextlib.asynccontextmanager
 async def lifespan(app: fastapi.FastAPI):
     print("Initializing listener pool")
     app.state.listener_pool = multiprocessing.Pool(16)
+    print("Running migrations")
+    await run_migrations()
     yield
     print("Closing listener pool")
     app.state.listener_pool.close()
