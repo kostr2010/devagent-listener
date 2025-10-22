@@ -1,13 +1,12 @@
-import sqlalchemy.orm
 import sqlalchemy.ext.asyncio
 
-from .config import app_settings
+from .config import LISTENER_CONFIG
 
-PG_USER = app_settings.POSTGRES_USER
-PG_PASS = app_settings.POSTGRES_PASSWORD
-PG_HOST = app_settings.POSTGRES_HOSTNAME
-PG_PORT = app_settings.DATABASE_PORT
-PG_DB = app_settings.POSTGRES_DB
+PG_USER = LISTENER_CONFIG.POSTGRES_USER
+PG_PASS = LISTENER_CONFIG.POSTGRES_PASSWORD
+PG_HOST = LISTENER_CONFIG.POSTGRES_HOSTNAME
+PG_PORT = LISTENER_CONFIG.DATABASE_PORT
+PG_DB = LISTENER_CONFIG.POSTGRES_DB
 PG_URL = f"postgresql+asyncpg://{PG_USER}:{PG_PASS}@{PG_HOST}:{PG_PORT}/{PG_DB}"
 
 SQL_ENGINE = sqlalchemy.ext.asyncio.create_async_engine(

@@ -4,16 +4,16 @@ import sqlalchemy.future
 import validators
 import enum
 import contextlib
-import multiprocessing
 import asyncio
 import alembic
 import alembic.config
 import logging
-
+import redis.asyncio
 
 from .database import SQL_SESSION
 from .models import Task, TaskKind, TaskStatus
 from .devagent import devagent_task_code_review_action_run
+from .config import LISTENER_CONFIG
 
 
 async def get_db():
@@ -29,14 +29,16 @@ async def run_migrations():
 
 @contextlib.asynccontextmanager
 async def lifespan(app: fastapi.FastAPI):
-    print("Initializing listener pool")
-    app.state.listener_pool = multiprocessing.Pool(16)
+    print("Initializing redis connection")
+    app.state.async_redis_conn = redis.asyncio.Redis(
+        host=LISTENER_CONFIG.REDIS_HOST,
+        port=LISTENER_CONFIG.REDIS_PORT,
+        password=LISTENER_CONFIG.REDIS_PASSWORD,
+    )
     print("Running migrations")
     await run_migrations()
     yield
-    print("Closing listener pool")
-    app.state.listener_pool.close()
-    app.state.listener_pool.join()
+    print("closing redis connection")
 
 
 listener = fastapi.FastAPI(debug=True, lifespan=lifespan)

@@ -17,11 +17,11 @@ from alembic import context
 config = context.config
 
 
-PG_USER = app.config.app_settings.POSTGRES_USER
-PG_PASS = app.config.app_settings.POSTGRES_PASSWORD
-PG_HOST = app.config.app_settings.POSTGRES_HOSTNAME
-PG_PORT = app.config.app_settings.DATABASE_PORT
-PG_DB = app.config.app_settings.POSTGRES_DB
+PG_USER = app.config.LISTENER_CONFIG.POSTGRES_USER
+PG_PASS = app.config.LISTENER_CONFIG.POSTGRES_PASSWORD
+PG_HOST = app.config.LISTENER_CONFIG.POSTGRES_HOSTNAME
+PG_PORT = app.config.LISTENER_CONFIG.DATABASE_PORT
+PG_DB = app.config.LISTENER_CONFIG.POSTGRES_DB
 config.set_main_option(
     "sqlalchemy.url",
     f"postgresql+asyncpg://{PG_USER}:{PG_PASS}@{PG_HOST}:{PG_PORT}/{PG_DB}",

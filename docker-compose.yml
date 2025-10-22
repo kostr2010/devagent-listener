@@ -13,6 +13,8 @@ services:
     ports:
       - "8008:8008"
     depends_on:
+      # listener_redis:
+      #   condition: "service_healthy"
       listener_db:
         condition: "service_healthy"
 
@@ -20,7 +22,6 @@ services:
     image: postgres:15.1-alpine3.16
     container_name: listener_db
     env_file: .env
-    # docker port must match the one in .env
     command: -p ${DATABASE_PORT} -c 'max_connections=200'
     ports:
       - "${DATABASE_PORT}:${DATABASE_PORT}"
@@ -29,9 +30,19 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: PGPASSWORD=${POSTGRES_PASSWORD} pg_isready -p ${DATABASE_PORT} -U ${POSTGRES_USER} -d ${POSTGRES_DB}
-      interval: 5s
+      interval: 1s
       timeout: 5s
       retries: 5
+
+  # listener_redis:
+  #   image: "redis:alpine"
+  #   ports:
+  #     - "6379:6379"
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+  #     interval: 1s
+  #     timeout: 5s
+  #     retries: 5
 
 volumes:
   postgres_data:
