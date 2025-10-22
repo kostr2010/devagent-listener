@@ -13,7 +13,7 @@ class Timer:
     def __init__(self, res: TimerResolution, tag: str | None):
         name = self.__class__.__name__
         if tag:
-            name += f" {tag}"
+            name += f"] [{tag}"
         self.log = logging.getLogger(name)
         self.log.setLevel(logging.INFO)
 

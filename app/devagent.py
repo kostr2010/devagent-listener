@@ -167,7 +167,7 @@ def devagent_review_postprocess(devagent_review: list):
     return final_result
 
 
-async def devagent_review_diff(diff: dict, rules: dict, repo_root: str) -> list:
+async def devagent_review_diff(diff: dict, dir_to_rules: dict, repo_root: str) -> list:
     log = logging.getLogger(__name__)
     log.setLevel(logging.INFO)
 
@@ -179,7 +179,7 @@ async def devagent_review_diff(diff: dict, rules: dict, repo_root: str) -> list:
         for diff_file in diff["files"]:
             relevant_rules = set()
             abspath = os.path.abspath(os.path.join(repo_root, diff_file["file"]))
-            for dir, rules in rules.items():
+            for dir, rules in dir_to_rules.items():
                 if dir != os.path.commonpath([dir, abspath]):
                     continue
                 relevant_rules.update(rules)
@@ -208,22 +208,11 @@ async def devagent_review_diff(diff: dict, rules: dict, repo_root: str) -> list:
                 asyncio.to_thread(run_devagent_review, repo_root, patch, rule)
             )
 
-        res = devagent_review_postprocess(
-            [await task for task in devagent_review_tasks]
-        )
+        devagent_reviews = await asyncio.gather(*devagent_review_tasks)
+
+        res = devagent_review_postprocess(devagent_reviews)
 
     return res
-
-
-async def devagent_review_pr(url: str, rules: dict, workdir: str):
-
-    diff = await get_diff(url)
-    if "error" in diff:
-        raise Exception(f"Error during getting pr diff: {diff['error']}")
-
-    repo_root = os.path.abspath(os.path.join(workdir, diff["repo"]))
-
-    return devagent_review_diff(diff, rules, repo_root)
 
 
 async def devagent_task_code_review_action_run(
@@ -236,9 +225,15 @@ async def devagent_task_code_review_action_run(
             rules = load_rules(workdir)
 
             # TODO: for pr in payload do
-            devagent_review = await devagent_review_pr(
-                url=url, rules=rules, workdir=workdir
-            )
+            diff = await get_diff(url)
+            if "error" in diff:
+                raise Exception(f"Error during getting pr diff: {diff['error']}")
+
+            # TODO: for pr in payload do
+            repo_root = os.path.abspath(os.path.join(workdir, diff["repo"]))
+
+            # TODO: for pr in payload do
+            devagent_review = await devagent_review_diff(diff, rules, repo_root)
 
             # TODO: for pr in payload do
             await update_task_in_db(
