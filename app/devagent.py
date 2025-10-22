@@ -98,6 +98,9 @@ async def get_diff(url: str):
         )
         if gitee_pr == None or ("error" in gitee_pr and tries_left > 0):
             tries_left -= 1
+            print(
+                f"[tries left: {tries_left}] Get diff for url {url} with the exception {gitee_pr['error']}"
+            )
             await asyncio.sleep(5 * (5 - tries_left))
         else:
             should_retry = False
@@ -197,6 +200,9 @@ async def initialize_workdir(workdir: str):
             except Exception as e:
                 if tries_left > 0:
                     tries_left -= 1
+                    print(
+                        f"[tries left: {tries_left}] Repo clone failed with the exception {e}"
+                    )
                     await asyncio.sleep(5 * (5 - tries_left))
                 else:
                     raise e

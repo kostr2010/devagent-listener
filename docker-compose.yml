@@ -1,8 +1,10 @@
 services:
   listener_app:
     build: .
-    command: uvicorn app.main:listener --host 0.0.0.0 --port 8008 --reload
-    env_file: secrets.env
+    command: uvicorn app.main:listener --host 0.0.0.0 --port 8008 --reload --log-level debug
+    env_file: .env
+    environment:
+      PYTHONUNBUFFERED: 1
     restart: always
     volumes:
       - ./app:/app
@@ -11,19 +13,25 @@ services:
     ports:
       - "8008:8008"
     depends_on:
-      - listener_db
+      listener_db:
+        condition: "service_healthy"
 
   listener_db:
     image: postgres:15.1-alpine3.16
     container_name: listener_db
-    env_file: secrets.env
-    # docker port must match the one in secrets.env
-    command: -p 5555 -c 'max_connections=200'
+    env_file: .env
+    # docker port must match the one in .env
+    command: -p ${DATABASE_PORT} -c 'max_connections=200'
     ports:
-      - "5555:5555"
+      - "${DATABASE_PORT}:${DATABASE_PORT}"
     restart: always
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: PGPASSWORD=${POSTGRES_PASSWORD} pg_isready -p ${DATABASE_PORT} -U ${POSTGRES_USER} -d ${POSTGRES_DB}
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

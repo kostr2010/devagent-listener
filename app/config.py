@@ -15,7 +15,7 @@ class Settings(pydantic_settings.BaseSettings):
     DEVAGENT_API_KEY: str
 
     class Config:
-        env_file = "./secrets.env"
+        env_file = "./.env"
 
 
 app_settings = Settings()

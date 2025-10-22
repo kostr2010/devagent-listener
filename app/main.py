@@ -8,6 +8,8 @@ import multiprocessing
 import asyncio
 import alembic
 import alembic.config
+import logging
+
 
 from .database import SQL_SESSION
 from .models import Task, TaskKind, TaskStatus
@@ -57,6 +59,12 @@ async def devagent_endpoint(
     db: sqlalchemy.ext.asyncio.AsyncSession = fastapi.Depends(get_db),
 ):
     # TODO: add secret key validation
+
+    log = logging.getLogger(__name__)
+    log.setLevel(logging.INFO)
+    log.info(
+        f"Received request /api/v1/devagent?task_kind={task_kind}&action={action}&payload={payload}"
+    )
 
     api_v1_devagent_validate_task_kind(task_kind)
     api_v1_devagent_validate_action(action)

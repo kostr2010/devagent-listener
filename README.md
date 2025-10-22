@@ -18,7 +18,7 @@ pip install -r requirements.txt
 First, edit `serets.env` according to your desired values. Value for `POSTGRES_HOSTNAME` can be left empty for now
 
 ```bash
-cp sercets.env.example secrets.env
+cp .env.example .env
 ```
 
 Then, build your database
