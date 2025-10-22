@@ -1,35 +1,63 @@
 services:
   listener_app:
     build: .
-    command: uvicorn app.main:listener --host 0.0.0.0 --port 8008 --reload --log-level debug
+    container_name: devagent_listener_app
     env_file: .env
     environment:
       PYTHONUNBUFFERED: 1
     restart: always
+    command: uvicorn app.main:listener --host 0.0.0.0 --port ${LISTENER_PORT} --reload --log-level info
     volumes:
       - ./app:/app
     expose:
-      - "8008"
+      - "${LISTENER_PORT}"
     ports:
-      - "8008:8008"
+      - "${LISTENER_PORT}:${LISTENER_PORT}"
+    healthcheck:
+      test: curl --fail http://localhost:${LISTENER_PORT}/health || exit 1
+      interval: 1s
+      timeout: 5s
+      retries: 5
     depends_on:
-      listener_db:
+      listener_redis:
+        condition: "service_healthy"
+      listener_devagent_worker:
         condition: "service_healthy"
 
-  listener_db:
-    image: postgres:15.1-alpine3.16
-    container_name: listener_db
-    env_file: .env
-    # docker port must match the one in .env
-    command: -p ${DATABASE_PORT} -c 'max_connections=200'
-    ports:
-      - "${DATABASE_PORT}:${DATABASE_PORT}"
-    restart: always
+  listener_devagent_worker:
+    build: .
+    container_name: devagent_listener_devagent_worker
+    command: celery -A app.devagent.worker.devagent_worker worker --loglevel=info
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./app:/app
     healthcheck:
-      test: PGPASSWORD=${POSTGRES_PASSWORD} pg_isready -p ${DATABASE_PORT} -U ${POSTGRES_USER} -d ${POSTGRES_DB}
-      interval: 5s
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A app.devagent.worker.devagent_worker inspect ping",
+        ]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - listener_redis
+
+  listener_redis:
+    image: redis:6-alpine
+    container_name: devagent_listener_redis
+    # environment:
+    #   REDIS_DISABLE_DEFAULT_USER: true
+    restart: always
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD} --port ${REDIS_PORT}
+    ports:
+      - "${REDIS_PORT}:${REDIS_PORT}"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "redis-cli -u redis://${REDIS_USERNAME}:${REDIS_PASSWORD}@${REDIS_HOST}:${REDIS_PORT} PING | grep PONG",
+        ]
+      interval: 1s
       timeout: 5s
       retries: 5
 

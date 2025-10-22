@@ -1,62 +1,45 @@
 import urllib.request
 import urllib.error
+import urllib.parse
 import json
+
 from typing import Any, Mapping
 
-from .config import app_settings
 
-
-def _convert_to_standard_diff(api_response: dict) -> list[dict[str, str]]:
+def _convert_to_standard_diff(api_response: list) -> list[dict[str, str]]:
     """
-    Convert GitCode API response to standard diff format.
+    Convert Gitee API response to standard diff format.
 
     Args:
-        api_response: Raw response from GitCode API
+        api_response: Raw response from Gitee API
 
     Returns:
         List of dicts with 'file' and 'diff' keys
     """
     result = []
 
-    if "diffs" not in api_response:
-        return result
+    for diff_item in api_response:
+        patch = diff_item.get("patch")
 
-    for diff_item in api_response["diffs"]:
         # Extract file path
-        file_path = diff_item.get("statistic", {}).get("path", "unknown")
+        file_path = patch.get("new_path", "unknown")
 
         # Build standard diff format from the content
         diff_lines = []
 
         # Add diff header
-        old_path = diff_item.get("statistic", {}).get("old_path", file_path)
-        new_path = diff_item.get("statistic", {}).get("new_path", file_path)
+        old_path = patch.get("old_path", file_path)
+        new_path = patch.get("new_path", file_path)
         # FIXME: remove when not needed
         diff_lines.append(f"diff --git a/{old_path} b/{new_path}")
         diff_lines.append(f"--- a/{old_path}")
         diff_lines.append(f"+++ b/{new_path}")
 
         # Process text content
-        content = diff_item.get("content", {})
-        text_lines = content.get("text", [])
+        text_lines = patch.get("diff", "").split("\n")
 
         for line_item in text_lines:
-            line_content = line_item.get("line_content", "")
-            line_type = line_item.get("type", "")
-
-            # Handle different line types
-            if line_type == "match":
-                # Hunk header (e.g., @@ -0,0 +1,29 @@)
-                diff_lines.append(line_content)
-            elif line_type == "new":
-                # Added line
-                diff_lines.append(f"+{line_content}")
-            elif line_type == "old":
-                # Removed line
-                diff_lines.append(f"-{line_content}")
-            elif line_type == "context" or line_type == "":
-                # Context line (unchanged)
-                diff_lines.append(f" {line_content}")
+            diff_lines.append(line_item)
 
         # Join lines into a single diff string
         diff_str = "\n".join(diff_lines)
@@ -65,19 +48,17 @@ def _convert_to_standard_diff(api_response: dict) -> list[dict[str, str]]:
             {
                 "file": file_path,
                 "diff": diff_str,
-                "added_lines": diff_item.get("added_lines", 0),
-                "removed_lines": diff_item.get("remove_lines", 0),
+                "added_lines": diff_item.get("additions", 0),
+                "removed_lines": diff_item.get("deletions", 0),
             }
         )
 
     return result
 
 
-def get_gitcode_pr(
-    owner: str | None, repo: str | None, pr_number: int | None
-) -> Mapping[str, Any]:
+def get_diff(token: str, url: str) -> Mapping[str, Any]:
     """
-    Fetch Pull Request data from GitCode API.
+    Fetch Pull Request data from Gitee API.
 
     Args:
         payload: Contains 'owner', 'repo', 'number', and optional 'token' fields
@@ -86,7 +67,14 @@ def get_gitcode_pr(
     Returns:
         Dict with 'files' list containing file paths and diffs
     """
-    token = app_settings.GITCODE_TOKEN
+
+    parsed_url = urllib.parse.urlparse(url)
+    url_path = parsed_url.path.split("/")
+
+    # ['', 'owner', 'repo', 'pull', 'pr_number']
+    owner = url_path[1]
+    repo = url_path[2]
+    pr_number = url_path[4]
 
     if not owner or not repo or not pr_number:
         return {
@@ -95,7 +83,7 @@ def get_gitcode_pr(
         }
 
     # Construct API URL
-    url = f"https://api.gitcode.com/api/v5/repos/{owner}/{repo}/pulls/{pr_number}/files.json"
+    url = f"https://api.gitee.com/api/v5/repos/{owner}/{repo}/pulls/{pr_number}/files.json"
 
     try:
         # Make HTTP request
@@ -116,16 +104,7 @@ def get_gitcode_pr(
         # Convert to standard diff format
         files = _convert_to_standard_diff(data)
 
-        # Add summary information
-        summary = {
-            "total_files": data.get("count", 0),
-            "added_lines": data.get("added_lines", 0),
-            "removed_lines": data.get("remove_lines", 0),
-            "base_sha": data.get("diff_refs", {}).get("base_sha", ""),
-            "head_sha": data.get("diff_refs", {}).get("head_sha", ""),
-        }
-
-        return {"files": files, "summary": summary}
+        return {"repo": repo, "owner": owner, "pr_number": pr_number, "files": files}
 
     except urllib.error.HTTPError as e:
         return {"error": f"HTTP error {e.code}: {e.reason}", "files": []}
