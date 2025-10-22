@@ -1,2 +1,5 @@
 - [ ] Add secret key validation for the requests
 - [ ] Add TTL parameter to the database entries
+- [ ] speed up workdir initialization
+- [ ] make parallel execution schedule between limited workers current to_thread solution spawns too many threads
+- [ ] look into DNS failures

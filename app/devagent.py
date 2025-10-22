@@ -13,6 +13,7 @@ import tempfile
 import asyncio
 
 import time
+import logging
 
 from .models import Task, TaskStatus
 from .gitcode_pr import get_gitcode_pr
@@ -21,11 +22,18 @@ from .repo_info import SUPPORTED_REPOS, RepoInfo
 
 
 def run_devagent_review(workdir: str, patch: str, rule: str):
+    log = logging.getLogger(__name__)
+    log.setLevel(logging.INFO)
+
     try:
         tic = time.time()
 
+        cmd = ["devagent", "review", "--json", "--rule", rule, patch]
+
+        log.info(f"Started devagent:\ncwd={workdir}\ncmd={' '.join(cmd)}")
+
         devagent_result = subprocess.run(
-            ["devagent", "review", "--json", "--rule", rule, patch],
+            cmd,
             capture_output=True,
             cwd=workdir,
         )
@@ -37,7 +45,7 @@ def run_devagent_review(workdir: str, patch: str, rule: str):
         stdout = devagent_result.stdout.decode("utf-8")
 
         toc = time.time()
-        print(
+        log.info(
             f"[measure] run_devagent_review({workdir}, {patch}, {rule}):/ elapsed: {toc - tic}"
         )
 
@@ -77,6 +85,9 @@ def parse_pr_url(url: str):
 
 
 async def get_diff(url: str):
+    log = logging.getLogger(__name__)
+    log.setLevel(logging.INFO)
+
     pr_getter = None
 
     if "gitcode" in url:
@@ -98,7 +109,7 @@ async def get_diff(url: str):
         )
         if gitee_pr == None or ("error" in gitee_pr and tries_left > 0):
             tries_left -= 1
-            print(
+            log.info(
                 f"[tries left: {tries_left}] Get diff for url {url} with the exception {gitee_pr['error']}"
             )
             await asyncio.sleep(5 * (5 - tries_left))
@@ -106,7 +117,7 @@ async def get_diff(url: str):
             should_retry = False
 
     toc = time.time()
-    print(f"[measure] get_diff({url}):/ elapsed: {toc - tic}")
+    log.info(f"[measure] get_diff({url}):/ elapsed: {toc - tic}")
 
     return gitee_pr
 
@@ -172,6 +183,9 @@ def collect_relevant_rules(workdir: str, file: str, loaded_rules_config: dict):
 
 
 async def initialize_workdir(workdir: str):
+    log = logging.getLogger(__name__)
+    log.setLevel(logging.INFO)
+
     tic = time.time()
 
     remote = "gitcode"
@@ -200,7 +214,7 @@ async def initialize_workdir(workdir: str):
             except Exception as e:
                 if tries_left > 0:
                     tries_left -= 1
-                    print(
+                    log.info(
                         f"[tries left: {tries_left}] Repo clone failed with the exception {e}"
                     )
                     await asyncio.sleep(5 * (5 - tries_left))
@@ -210,7 +224,7 @@ async def initialize_workdir(workdir: str):
                 should_retry = False
 
     toc = time.time()
-    print(f"[measure] initialize_workdir:/ elapsed: {toc - tic}")
+    log.info(f"[measure] initialize_workdir:/ elapsed: {toc - tic}")
 
 
 async def devagent_schedule_diff_review(workdir: str, rule: str, diff: str):
@@ -224,6 +238,9 @@ async def devagent_schedule_diff_review(workdir: str, rule: str, diff: str):
 
 
 async def devagent_review_pr(pr_diff, workdir: str, repo_info: RepoInfo):
+    log = logging.getLogger(__name__)
+    log.setLevel(logging.INFO)
+
     tic = time.time()
 
     rules_config = load_rules_config(workdir, repo_info)
@@ -243,9 +260,6 @@ async def devagent_review_pr(pr_diff, workdir: str, repo_info: RepoInfo):
             else:
                 rule_to_diffs[rule] = [pr_diff_file]
 
-    # for rule, diffs in rule_to_diffs.items():
-    #     print(f"{rule} -> {[diff['file'] for diff in diffs]}")
-
     devagent_review_tasks = []
 
     for rule, diffs in rule_to_diffs.items():
@@ -260,7 +274,7 @@ async def devagent_review_pr(pr_diff, workdir: str, repo_info: RepoInfo):
     res = [await task for task in devagent_review_tasks]
 
     toc = time.time()
-    print(f"[measure] devagent_review_pr:/ elapsed: {toc - tic}")
+    log.info(f"[measure] devagent_review_pr:/ elapsed: {toc - tic}")
 
     return res
 
@@ -274,7 +288,6 @@ def devagent_review_postprocess(devagent_review: list):
         elif "result" in elem:
             results.append(json.loads(elem["result"]))
         else:
-            print(f"Discarding element of the review result: {elem}")
             continue
 
     results_filtered = [
