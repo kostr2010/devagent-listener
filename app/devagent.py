@@ -1,252 +1,233 @@
-import sqlalchemy.ext.asyncio
-import sqlalchemy.future
-import fastapi
 import subprocess
 import os.path
 import os
-import traceback
 import json
 import git
 import tempfile
-import asyncio
+import time
 import logging
+import celery
 
-from .models import Task, TaskStatus
-from .utils.timer import Timer, TimerResolution
+from .utils.timer import Timer
 from .remote.get_diff import get_diff
+from .celery import celery_instance
+from .config import CONFIG
 
-SUPPORTED_REPOS = ["arkcompiler_runtime_core", "arkcompiler_ets_frontend"]
-REVIEW_RULES_CONFIG = "REVIEW_RULES"
-REVIEW_RULES_DIR = ".REVIEW_RULES"
+DEVAGENT_LOG = logging.getLogger(__name__)
+DEVAGENT_LOG.setLevel(logging.INFO)
 
+DEVAGENT_SUPPORTED_REPOS = ["arkcompiler_runtime_core", "arkcompiler_ets_frontend"]
+DEVAGENT_REVIEW_RULES_CONFIG = "REVIEW_RULES"
+DEVAGENT_REVIEW_RULES_DIR = ".REVIEW_RULES"
 
-def run_devagent_review(workdir: str, patch: str, rule: str):
-    log = logging.getLogger(__name__)
-    log.setLevel(logging.INFO)
+DEVAGENT_WORKER_NAME = "devagent_worker"
 
-    try:
-        cmd = ["devagent", "review", "--json", "--rule", rule, patch]
-
-        log.info(f"Started devagent:\ncwd={workdir}\ncmd={' '.join(cmd)}")
-
-        devagent_result = None
-        with Timer(res=TimerResolution.SECONDS, tag=__name__):
-            devagent_result = subprocess.run(
-                cmd,
-                capture_output=True,
-                cwd=workdir,
-            )
-
-        stderr = devagent_result.stderr.decode("utf-8")
-        if len(stderr) > 0 and "Error" in stderr:
-            return {"error": {"message": stderr, "patch": patch, "rule": rule}}
-
-        stdout = devagent_result.stdout.decode("utf-8")
-
-        return {"result": stdout}
-    except Exception as e:
-        return {"error": f"{str(e)}"}
+devagent_worker = celery_instance(DEVAGENT_WORKER_NAME, CONFIG.DEVAGENT_REDIS_DB)
 
 
-def load_rules(workdir: str):
-    dir_to_rules = {}
-
-    for repo in SUPPORTED_REPOS:
-        repo_root = os.path.abspath(os.path.join(workdir, repo))
-        rules_config = os.path.abspath(os.path.join(repo_root, REVIEW_RULES_CONFIG))
-        rules_dir = os.path.abspath(os.path.join(repo_root, REVIEW_RULES_DIR))
-
-        with open(rules_config) as cfg:
-            for line in cfg:
-                parsed_line = line.strip().split()
-                path = parsed_line[0].removeprefix("/")
-                rules = parsed_line[1:]
-                abs_path = os.path.abspath(os.path.join(repo_root, path))
-                abs_rules = list(
-                    map(
-                        lambda rule: os.path.abspath(os.path.join(rules_dir, rule)),
-                        rules,
-                    )
-                )
-                dir_to_rules.update({abs_path: abs_rules})
-
-    return dir_to_rules
-
-
-async def update_task_in_db(
-    status: TaskStatus,
-    result: str,
-    task_id: int,
-    db: sqlalchemy.ext.asyncio.AsyncSession,
-):
-    existing_task_result = await db.execute(
-        sqlalchemy.future.select(Task).where(Task.task_id == task_id)
+def devagent_review_task(urls: list):
+    workdir = tempfile.mkdtemp()
+    return celery.chain(
+        devagent_init_workdir.s(wd=workdir),
+        celery.group(devagent_get_diff.s(url=url) for url in urls),
+        devagent_schedule_review_tasks.s(wd=workdir),
+        devagent_review_postprocess.s(),
     )
 
-    db_item = existing_task_result.scalars().first()
 
-    if db_item == None:
-        raise fastapi.HTTPException(
-            status_code=500,
-            detail=f"No task {task_id} found in the db after code_review has finished",
-        )
-
-    db_item.task_status = status.value
-    db_item.task_result = result
-    db_item.updated_at = sqlalchemy.text("now()")
-
-    await db.commit()
-    await db.refresh(db_item)
-
-
-async def devagent_initialize_workdir(workdir: str):
-    log = logging.getLogger(__name__)
-    log.setLevel(logging.INFO)
-
-    remote = "gitcode"
-    # FIXME: replace with openharmony when integrating
-    owner = "nazarovkonstantin"
-    # FIXME: replace with necessary branch
-    branch = "feature/review_rules_test"
-
-    with Timer(res=TimerResolution.SECONDS, tag=__name__):
-        for repo in SUPPORTED_REPOS:
-            clone_dst = os.path.abspath(os.path.join(workdir, repo))
-            url = f"https://{remote}.com/{owner}/{repo}.git"
-
-            should_retry = True
-            tries_left = 5
-
-            while should_retry:
-                try:
-                    await asyncio.to_thread(
-                        git.Repo.clone_from,
-                        url,
-                        clone_dst,
-                        allow_unsafe_protocols=True,
-                        branch=branch,
-                        depth=1,
-                    )
-                except Exception as e:
-                    if tries_left > 0:
-                        tries_left -= 1
-                        log.info(
-                            f"[tries left: {tries_left}] Repo clone failed with the exception {e}"
-                        )
-                        await asyncio.sleep(5 * (5 - tries_left))
-                    else:
-                        raise e
-                else:
-                    should_retry = False
-
-
+@devagent_worker.task
 def devagent_review_postprocess(devagent_review: list):
-    results = []
-    errors = []
+    results = {}
+    errors = {}
+
     for elem in devagent_review:
+        repo = elem["repo"]
         if "error" in elem:
-            errors.append(elem["error"])
+            error = elem["error"]
+            errors.update(repo, errors.get(repo, []).append(error))
         elif "result" in elem:
-            results.append(json.loads(elem["result"]))
+            violations = json.loads(elem["result"]["violations"])
+            results.update(repo, results.get(repo, []).append(violations))
         else:
             continue
 
-    results_filtered = [
-        violation
-        for violations in list(
-            map(
-                lambda elem: elem["violations"],
-                filter(lambda res: len(res["violations"]) > 0, results),
-            )
-        )
-        for violation in violations
-    ]
+    results_filtered = {
+        repo: [
+            violation for violation_list in violations for violation in violation_list
+        ]
+        for repo, violations in results.items()
+    }
 
     final_result = {"errors": errors, "results": results_filtered}
 
     return final_result
 
 
-async def devagent_review_diff(diff: dict, dir_to_rules: dict, repo_root: str) -> list:
-    log = logging.getLogger(__name__)
-    log.setLevel(logging.INFO)
+@devagent_worker.task
+def devagent_init_workdir(wd: str) -> None:
+    with Timer():
+        for repo in DEVAGENT_SUPPORTED_REPOS:
+            clone_dst = os.path.abspath(os.path.join(wd, repo))
+            url = f"https://gitcode.com/nazarovkonstantin/{repo}.git"
 
-    res = []
+            should_retry = True
+            tries_left = 5
 
-    with Timer(res=TimerResolution.SECONDS, tag=__name__):
-        rule_to_diffs = {}
+            while should_retry:
+                try:
+                    git.Repo.clone_from(
+                        url,
+                        clone_dst,
+                        allow_unsafe_protocols=True,
+                        branch="feature/review_rules_test",
+                        depth=1,
+                    )
+                except Exception as e:
+                    if tries_left > 0:
+                        tries_left -= 1
+                        DEVAGENT_LOG.info(
+                            f"[tries left: {tries_left}] Repo clone failed with the exception {e}"
+                        )
+                        time.sleep(5 * (5 - tries_left))
+                    else:
+                        raise e
+                else:
+                    should_retry = False
 
-        for diff_file in diff["files"]:
-            relevant_rules = set()
-            abspath = os.path.abspath(os.path.join(repo_root, diff_file["file"]))
-            for dir, rules in dir_to_rules.items():
-                if dir != os.path.commonpath([dir, abspath]):
-                    continue
-                relevant_rules.update(rules)
 
-            if len(relevant_rules) == 0:
+@devagent_worker.task
+def devagent_get_diff(url: str) -> dict:
+    get_diff(url)
+
+
+def load_rules(workdir: str) -> dict:
+    dir_to_rules = {}
+
+    with Timer():
+        for repo in DEVAGENT_SUPPORTED_REPOS:
+            repo_root = os.path.abspath(os.path.join(workdir, repo))
+            rules_config = os.path.abspath(
+                os.path.join(repo_root, DEVAGENT_REVIEW_RULES_CONFIG)
+            )
+            rules_dir = os.path.abspath(
+                os.path.join(repo_root, DEVAGENT_REVIEW_RULES_DIR)
+            )
+
+            with open(rules_config) as cfg:
+                for line in cfg:
+                    parsed_line = line.strip().split()
+                    path = parsed_line[0].removeprefix("/")
+                    rules = parsed_line[1:]
+                    abs_path = os.path.abspath(os.path.join(repo_root, path))
+                    abs_rules = list(
+                        map(
+                            lambda rule: os.path.abspath(os.path.join(rules_dir, rule)),
+                            rules,
+                        )
+                    )
+                    dir_to_rules.update({abs_path: abs_rules})
+
+    return dir_to_rules
+
+
+def group_diffs_by_rule(diffs: list, rules: dict, wd: str) -> dict:
+    rule_to_diffs = {}
+
+    for diff in diffs:
+        diff_repo = diff["repo"]
+        diff_files = diff["files"]
+
+        diff_repo_abspath = os.path.abspath(os.path.join(wd, diff_repo))
+
+        for diff_file in diff_files:
+            diff_file_path = diff_file["file"]
+            diff_file_abspath = os.path.abspath(
+                os.path.join(diff_repo_abspath, diff_file_path)
+            )
+
+            applicable_rules = set()
+
+            for dir_abspath, rules_abspaths in rules:
+                if dir_abspath == os.path.commonpath(dir_abspath, diff_file_abspath):
+                    applicable_rules.update(rules_abspaths)
+
+            if len(applicable_rules) == 0:
                 continue
 
-            for rule in relevant_rules:
-                if rule in rule_to_diffs:
-                    rule_to_diffs[rule].append(diff_file)
-                else:
-                    rule_to_diffs[rule] = [diff_file]
+            for rule in applicable_rules:
+                rule_combined_diff = rule_to_diffs.get(rule, [])
+                rule_to_diffs[rule] = rule_combined_diff.append(diff_file["diff"])
 
-        devagent_review_tasks = []
+    return rule_to_diffs
 
-        for rule, diffs in rule_to_diffs.items():
-            combined_diff = "\n\n".join([diff["diff"] for diff in diffs])
 
-            # FIXME: remove this. generate temp patch file while devagent can't parse input as string
-            temp = tempfile.NamedTemporaryFile(suffix=f".patch", delete=False)
-            temp.write(combined_diff.encode("utf-8"))
-            patch = temp.name
-            temp.close()
+def diff_to_patch(diff: str) -> str:
+    # FIXME: remove this. generate temp patch file while devagent can't parse input as string
 
-            devagent_review_tasks.append(
-                asyncio.to_thread(run_devagent_review, repo_root, patch, rule)
+    temp = tempfile.NamedTemporaryFile(suffix=f".patch", delete=False)
+    temp.write(diff.encode("utf-8"))
+    patch_path = temp.name
+    temp.close()
+
+    return patch_path
+
+
+def extract_repo_from_rule_path(rule_path: str) -> str:
+    rule_dir = os.path.dirname(rule_path)
+    repo_dir = os.path.abspath(os.path.join(rule_dir, ".."))
+
+    return repo_dir
+
+
+@devagent_worker.task
+def devagent_review_run(cwd: str, patch_path: str, rule_path: str):
+    try:
+        cmd = ["devagent", "review", "--json", "--rule", rule_path, patch_path]
+
+        DEVAGENT_LOG.info(f"Started devagent:\ncwd={cwd}\ncmd={' '.join(cmd)}")
+
+        devagent_result = None
+        with Timer():
+            devagent_result = subprocess.run(
+                cmd,
+                capture_output=True,
+                cwd=cwd,
             )
 
-        devagent_reviews = await asyncio.gather(*devagent_review_tasks)
+        stderr = devagent_result.stderr.decode("utf-8")
+        if len(stderr) > 0 and "Error" in stderr:
+            return {
+                "error": {"message": stderr, "patch": patch_path, "rule": rule_path}
+            }
 
-        res = devagent_review_postprocess(devagent_reviews)
+        stdout = devagent_result.stdout.decode("utf-8")
+
+        return {"repo": os.path.basename(cwd), "result": stdout}
+    except Exception as e:
+        return {"repo": os.path.basename(cwd), "error": f"{str(e)}"}
+
+
+def devagent_cleanup(workdir: str):
+    os.unlink(workdir)
+
+
+@devagent_worker.task
+def devagent_schedule_review_tasks(wd: str, diffs: list):
+    rules = load_rules(wd)
+
+    diffs_by_rule = group_diffs_by_rule(diffs, rules, wd)
+
+    diff_by_rule = {rule: "\n\n".join(diffs) for rule, diffs in diffs_by_rule.items()}
+
+    patch_by_rule = {rule: diff_to_patch(diff) for rule, diff in diff_by_rule.items()}
+
+    res = celery.group(
+        devagent_review_run.s(
+            extract_repo_from_rule_path(rule_path), patch_path, rule_path
+        )
+        for rule_path, patch_path in patch_by_rule.items()
+    ).delay()
+
+    devagent_cleanup(wd)
 
     return res
-
-
-async def devagent_task_code_review_action_run(
-    task_id: int, url: str, db: sqlalchemy.ext.asyncio.AsyncSession
-):
-    try:
-        with tempfile.TemporaryDirectory() as workdir:
-            await devagent_initialize_workdir(workdir)
-
-            rules = load_rules(workdir)
-
-            # TODO: for pr in payload do
-            diff = await get_diff(url)
-            if "error" in diff:
-                raise Exception(f"Error during getting pr diff: {diff['error']}")
-
-            # TODO: for pr in payload do
-            repo_root = os.path.abspath(os.path.join(workdir, diff["repo"]))
-
-            # TODO: for pr in payload do
-            devagent_review = await devagent_review_diff(diff, rules, repo_root)
-
-            # TODO: for pr in payload do
-            await update_task_in_db(
-                TaskStatus.TASK_STATUS_DONE,
-                json.dumps(devagent_review),
-                task_id,
-                db,
-            )
-
-    except Exception as e:
-        await update_task_in_db(
-            TaskStatus.TASK_STATUS_ERROR,
-            f"Unexpected error during processing of the task {str(e)}. Trace:\n{traceback.format_exc()}",
-            task_id,
-            db,
-        )

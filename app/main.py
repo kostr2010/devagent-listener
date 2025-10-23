@@ -1,52 +1,54 @@
 import fastapi
-import sqlalchemy.ext.asyncio
-import sqlalchemy.future
 import validators
 import enum
 import contextlib
-import asyncio
-import alembic
-import alembic.config
 import logging
 import redis.asyncio
+import celery.result
 
-from .database import SQL_SESSION
-from .models import Task, TaskKind, TaskStatus
-from .devagent import devagent_task_code_review_action_run
-from .config import LISTENER_CONFIG
+from .redis import init_async_redis_conn
+from .devagent import devagent_review_task, devagent_worker
+from .config import CONFIG
 
-
-async def get_db():
-    async with SQL_SESSION() as session:
-        yield session
-        await session.commit()
+LISTENER_LOG = logging.getLogger(__name__)
+LISTENER_LOG.setLevel(logging.INFO)
 
 
-async def run_migrations():
-    cfg = alembic.config.Config("alembic.ini")
-    await asyncio.to_thread(alembic.command.upgrade, cfg, "head")
+class TaskKind(enum.IntEnum):
+    TASK_KIND_CODE_REVIEW = 0  # Code review
 
 
-@contextlib.asynccontextmanager
-async def lifespan(app: fastapi.FastAPI):
-    print("Initializing redis connection")
-    app.state.async_redis_conn = redis.asyncio.Redis(
-        host=LISTENER_CONFIG.REDIS_HOST,
-        port=LISTENER_CONFIG.REDIS_PORT,
-        password=LISTENER_CONFIG.REDIS_PASSWORD,
-    )
-    print("Running migrations")
-    await run_migrations()
-    yield
-    print("closing redis connection")
-
-
-listener = fastapi.FastAPI(debug=True, lifespan=lifespan)
+class TaskStatus(enum.IntEnum):
+    TASK_STATUS_IN_PROGRESS = 0  # Task is in progress
+    TASK_STATUS_DONE = 1  # Task completed successfully
+    TASK_STATUS_ERROR = 2  # Task completed abnormally
+    TASK_STATUS_ABORTED = 3  # Task execution was aborted
+    TASK_STATUS_PENDING = 4  # Task execution is pending
 
 
 class Action(enum.IntEnum):
     ACTION_GET = 0  # get current state of the task
     ACTION_RUN = 1  # restart execution of the task
+
+
+def encode_devagent_review_payload(payload: str) -> str:
+    return f"{TaskKind.TASK_KIND_CODE_REVIEW.value}:{payload}"
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app: fastapi.FastAPI):
+    print("Initializing redis connection")
+    app.state.async_redis_conn = init_async_redis_conn(CONFIG.LISTENER_REDIS_DB)
+    yield
+    print("Closing redis connection")
+    app.state.async_redis_conn.close()
+
+
+def get_redis(request: fastapi.Request):
+    return request.app.state.async_redis_conn
+
+
+listener = fastapi.FastAPI(debug=True, lifespan=lifespan)
 
 
 @listener.get("/api/v1/devagent")
@@ -58,13 +60,11 @@ async def devagent_endpoint(
     task_kind: int,
     action: int,
     payload: str | None = None,
-    db: sqlalchemy.ext.asyncio.AsyncSession = fastapi.Depends(get_db),
+    redis: redis.asyncio.Redis = fastapi.Depends(get_redis),
 ):
     # TODO: add secret key validation
 
-    log = logging.getLogger(__name__)
-    log.setLevel(logging.INFO)
-    log.info(
+    LISTENER_LOG.info(
         f"Received request /api/v1/devagent?task_kind={task_kind}&action={action}&payload={payload}"
     )
 
@@ -78,7 +78,7 @@ async def devagent_endpoint(
         task_kind=task_kind,
         action=action,
         payload=payload,
-        db=db,
+        redis=redis,
     )
 
 
@@ -128,26 +128,41 @@ def api_v1_devagent_task_code_review_action_get_validate_payload(
 
 async def api_v1_devagent_task_code_review_action_get(
     payload: str | None,
-    db: sqlalchemy.ext.asyncio.AsyncSession,
+    redis: redis.asyncio.Redis,
 ):
     api_v1_devagent_task_code_review_action_get_validate_payload(payload)
 
-    existing_task_result = await db.execute(
-        sqlalchemy.future.select(Task).where(
-            Task.task_kind == TaskKind.TASK_KIND_CODE_REVIEW.value,
-            Task.task_id == int(payload),
-        )
-    )
+    task = celery.result.AsyncResult(payload)
 
-    existing_task = existing_task_result.scalars().first()
-
-    if existing_task == None:
+    if "SUCCESS" == task.state:
+        return {
+            "task_id": task.id,
+            "status": TaskStatus.TASK_STATUS_DONE.value,
+            "task_result": task.result,
+        }
+    elif "FAILURE" == task.state:
+        return {
+            "task_id": task.id,
+            "task_status": TaskStatus.TASK_STATUS_ERROR.value,
+            "task_result": task.result,
+        }
+    if "PENDING" == task.state:
+        return {
+            "task_id": task.id,
+            "status": TaskStatus.TASK_STATUS_PENDING.value,
+            "task_result": None,
+        }
+    elif "STARTED" == task.state:
+        return {
+            "task_id": task.id,
+            "task_status": TaskStatus.TASK_STATUS_IN_PROGRESS.value,
+            "task_result": None,
+        }
+    else:
         raise fastapi.HTTPException(
-            status_code=400,
-            detail=f"No task with task_id={payload} found",
+            status_code=500,
+            detail=f"Unexpected task state: payload={payload}, task.state={task.state}",
         )
-
-    return existing_task
 
 
 def api_v1_devagent_task_code_review_action_run_validate_payload(
@@ -159,75 +174,68 @@ def api_v1_devagent_task_code_review_action_run_validate_payload(
             detail=f"Expected non-empty value for payload parameter if task_kind={TaskKind.TASK_KIND_CODE_REVIEW.value} and action={Action.ACTION_RUN.value}",
         )
 
-    if not validators.url(payload):
+    urls = list(filter(lambda s: len(s) > 0, payload.split(";")))
+
+    if len(urls) == 0:
         raise fastapi.HTTPException(
             status_code=400,
-            detail=f"Invalid url passed in payload: payload={payload}",
+            detail=f"Expected non-empty semicolon-separated list of urls for payload parameter if task_kind={TaskKind.TASK_KIND_CODE_REVIEW.value} and action={Action.ACTION_RUN.value}",
         )
 
-    if not ("gitcode" in payload or "gitee" in payload):
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f"Expected gitcode url, got payload={payload}",
-        )
+    for url in urls:
+        if not validators.url(url):
+            raise fastapi.HTTPException(
+                status_code=400,
+                detail=f"Invalid url passed in payload: url={url}",
+            )
+
+        if not ("gitcode" in url or "gitee" in url) or not "pull" in url:
+            raise fastapi.HTTPException(
+                status_code=400,
+                detail=f"Expected gitee/ gitcode pull request url, got url={url}",
+            )
 
     # TODO: add more verification
 
 
 async def api_v1_devagent_task_code_review_action_run(
-    background_tasks: fastapi.BackgroundTasks,
     payload: str | None,
-    db: sqlalchemy.ext.asyncio.AsyncSession,
+    redis: redis.asyncio.Redis,
 ):
     api_v1_devagent_task_code_review_action_run_validate_payload(payload)
 
-    existing_task_result = await db.execute(
-        sqlalchemy.future.select(Task).where(
-            Task.task_kind == TaskKind.TASK_KIND_CODE_REVIEW.value,
-            Task.task_payload == payload,
-            Task.task_status == TaskStatus.TASK_STATUS_IN_PROGRESS.value,
-        )
-    )
+    urls = list(filter(lambda s: len(s) > 0, payload.split(";")))
+    task = devagent_review_task(urls).delay()
 
-    existing_task = existing_task_result.scalars().first()
-    if existing_task != None:
-        return existing_task
+    encoded_payload = encode_devagent_review_payload(payload)
 
-    new_task = Task(
-        task_payload=payload,
-        task_kind=TaskKind.TASK_KIND_CODE_REVIEW.value,
-        task_status=TaskStatus.TASK_STATUS_IN_PROGRESS.value,
-    )
+    # get running task for the same payload
+    existing_task = await redis.get(encoded_payload)
 
-    db.add(new_task)
+    # immediately override with new task
+    await redis.set(encoded_payload, task.id, ex=3600)
 
-    await db.commit()
-    await db.refresh(new_task)
+    # terminate running task if it was
+    if existing_task:
+        devagent_worker.control.revoke(existing_task, terminate=True)
 
-    background_tasks.add_task(
-        devagent_task_code_review_action_run,
-        task_id=new_task.task_id,
-        url=payload,
-        db=db,
-    )
-
-    return new_task
+    # return new task
+    return {"task_id": task.id}
 
 
 async def api_v1_devagent_task_code_review(
-    request: fastapi.Request,
-    background_tasks: fastapi.BackgroundTasks,
     action: int,
     payload: str | None,
-    db: sqlalchemy.ext.asyncio.AsyncSession,
+    redis: redis.asyncio.Redis,
 ):
     if action == Action.ACTION_GET.value:
-        return await api_v1_devagent_task_code_review_action_get(payload=payload, db=db)
+        return await api_v1_devagent_task_code_review_action_get(
+            payload=payload, redis=redis
+        )
     elif action == Action.ACTION_RUN.value:
         return await api_v1_devagent_task_code_review_action_run(
-            background_tasks=background_tasks,
             payload=payload,
-            db=db,
+            redis=redis,
         )
     else:
         raise fastapi.HTTPException(
@@ -239,19 +247,19 @@ async def api_v1_devagent_task_code_review(
 async def api_v1_devagent_process_task(
     response: fastapi.Response,
     request: fastapi.Request,
-    background_tasks: fastapi.BackgroundTasks,
     task_kind: int,
     action: int,
     payload: str | None,
-    db: sqlalchemy.ext.asyncio.AsyncSession,
+    redis: redis.asyncio.Redis,
 ):
+    request  # maybe used
+    response  # maybe used
+
     if task_kind == TaskKind.TASK_KIND_CODE_REVIEW.value:
         return await api_v1_devagent_task_code_review(
-            request=request,
-            background_tasks=background_tasks,
             action=action,
             payload=payload,
-            db=db,
+            redis=redis,
         )
     else:
         raise fastapi.HTTPException(

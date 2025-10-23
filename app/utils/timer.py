@@ -1,6 +1,6 @@
 import time
 import logging
-
+import inspect
 import enum
 
 
@@ -10,11 +10,10 @@ class TimerResolution(enum.Enum):
 
 
 class Timer:
-    def __init__(self, res: TimerResolution, tag: str | None):
-        name = self.__class__.__name__
-        if tag:
-            name += f"] [{tag}"
-        self.log = logging.getLogger(name)
+    def __init__(self, res: TimerResolution = TimerResolution.SECONDS):
+        self.log = logging.getLogger(
+            f"{self.__class__.__name__}] [{inspect.stack()[1].function}"
+        )
         self.log.setLevel(logging.INFO)
 
         self.res = res

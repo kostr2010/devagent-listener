@@ -1,22 +1,22 @@
 import functools
 import logging
-import asyncio
+import time
 
 from .gitcode.get_diff import get_diff as get_gitcode_diff
 from .gitee.get_diff import get_diff as get_gitee_diff
 
-from ..config import LISTENER_CONFIG
+from ..config import CONFIG
 
 
-async def get_diff(url: str):
+def get_diff(url: str):
     log = logging.getLogger(__name__)
     log.setLevel(logging.INFO)
 
     cb = None
     if "gitcode" in url:
-        cb = functools.partial(get_gitcode_diff, LISTENER_CONFIG.GITCODE_TOKEN)
+        cb = functools.partial(get_gitcode_diff, CONFIG.GITCODE_TOKEN)
     elif "gitee" in url:
-        cb = functools.partial(get_gitee_diff, LISTENER_CONFIG.GITEE_TOKEN)
+        cb = functools.partial(get_gitee_diff, CONFIG.GITEE_TOKEN)
 
     diff = None
     tries_left = 5
@@ -29,7 +29,7 @@ async def get_diff(url: str):
             log.info(
                 f"[tries left: {tries_left}] Get diff for url {url} with the exception {diff['error']}"
             )
-            await asyncio.sleep(5 * (5 - tries_left))
+            time.sleep(5 * (5 - tries_left))
         else:
             should_retry = False
 
