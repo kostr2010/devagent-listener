@@ -6,7 +6,7 @@ services:
     environment:
       PYTHONUNBUFFERED: 1
     restart: always
-    command: uvicorn app.main:listener --host 0.0.0.0 --port 8008 --reload --log-level debug
+    command: uvicorn app.main:listener --host 0.0.0.0 --port 8008 --reload --log-level info
     volumes:
       - ./app:/app
     expose:
@@ -16,6 +16,22 @@ services:
     depends_on:
       listener_redis:
         condition: "service_healthy"
+      listener_devagent_worker:
+        condition: "service_healthy"
+
+  listener_devagent_worker:
+    build: .
+    container_name: devagent_listener_devagent_worker
+    command: celery -A app.devagent.devagent_worker worker --loglevel=info
+    volumes:
+      - ./app:/app
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.devagent.devagent_worker inspect ping"]
+      interval: 1s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - listener_redis
 
   listener_redis:
     image: redis:6-alpine

@@ -4,7 +4,6 @@ import enum
 import contextlib
 import logging
 import redis.asyncio
-import celery.result
 
 from .redis import init_async_redis_conn
 from .devagent import devagent_review_task, devagent_worker
@@ -41,7 +40,7 @@ async def lifespan(app: fastapi.FastAPI):
     app.state.async_redis_conn = init_async_redis_conn(CONFIG.LISTENER_REDIS_DB)
     yield
     print("Closing redis connection")
-    app.state.async_redis_conn.close()
+    await app.state.async_redis_conn.close()
 
 
 def get_redis(request: fastapi.Request):
@@ -55,7 +54,6 @@ listener = fastapi.FastAPI(debug=True, lifespan=lifespan)
 async def devagent_endpoint(
     response: fastapi.Response,
     request: fastapi.Request,
-    background_tasks: fastapi.BackgroundTasks,
     # query parameter declaration
     task_kind: int,
     action: int,
@@ -64,7 +62,7 @@ async def devagent_endpoint(
 ):
     # TODO: add secret key validation
 
-    LISTENER_LOG.info(
+    print(
         f"Received request /api/v1/devagent?task_kind={task_kind}&action={action}&payload={payload}"
     )
 
@@ -74,7 +72,6 @@ async def devagent_endpoint(
     return await api_v1_devagent_process_task(
         response=response,
         request=request,
-        background_tasks=background_tasks,
         task_kind=task_kind,
         action=action,
         payload=payload,
@@ -119,12 +116,6 @@ def api_v1_devagent_task_code_review_action_get_validate_payload(
             detail=f"Expected non-empty value for payload parameter if task_kind={TaskKind.TASK_KIND_CODE_REVIEW.value} and action={Action.ACTION_GET.value}",
         )
 
-    if not payload.isdigit():
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f"Invalid task id passed in payload parameter: payload={payload}",
-        )
-
 
 async def api_v1_devagent_task_code_review_action_get(
     payload: str | None,
@@ -132,7 +123,7 @@ async def api_v1_devagent_task_code_review_action_get(
 ):
     api_v1_devagent_task_code_review_action_get_validate_payload(payload)
 
-    task = celery.result.AsyncResult(payload)
+    task = devagent_worker.AsyncResult(payload)
 
     if "SUCCESS" == task.state:
         return {
@@ -205,15 +196,24 @@ async def api_v1_devagent_task_code_review_action_run(
     api_v1_devagent_task_code_review_action_run_validate_payload(payload)
 
     urls = list(filter(lambda s: len(s) > 0, payload.split(";")))
+
+    print("here")
+
     task = devagent_review_task(urls).delay()
+
+    print(f"started task {task.id}")
 
     encoded_payload = encode_devagent_review_payload(payload)
 
     # get running task for the same payload
     existing_task = await redis.get(encoded_payload)
 
+    print(f"existing task {existing_task}")
+
     # immediately override with new task
     await redis.set(encoded_payload, task.id, ex=3600)
+
+    print(f"new task {await redis.get(encoded_payload)}")
 
     # terminate running task if it was
     if existing_task:

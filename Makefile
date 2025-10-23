@@ -1,5 +1,8 @@
-db:
-	docker compose up -d listener_db
+worker:
+	docker compose up listener_devagent_worker
+
+redis:
+	docker compose up -d listener_redis
 
 app:
 	docker compose up -d --build listener_app 
