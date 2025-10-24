@@ -10,7 +10,11 @@ app:
 down:
 	docker compose down --remove-orphans --volumes
 
+test:
+	python -m unittest discover -s tests -p "*_test.py"
+
 .PHONY: db
 .PHONY: app
 .PHONY: down
 .PHONY: migrate
+.PHONY: test

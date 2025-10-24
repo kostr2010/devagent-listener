@@ -198,7 +198,7 @@ async def api_v1_devagent_task_code_review_action_run(
 
     print(f"devagent_review parsed urls: {urls}")
 
-    task = devagent_review(urls).delay()
+    task = devagent_review(urls)
 
     print(f"started task {task.id}")
 
