@@ -22,11 +22,15 @@ services:
   listener_devagent_worker:
     build: .
     container_name: devagent_listener_devagent_worker
-    command: celery -A app.devagent.devagent_worker worker --loglevel=info
+    command: celery -A app.devagent.worker.devagent_worker worker --loglevel=info
     volumes:
       - ./app:/app
     healthcheck:
-      test: ["CMD-SHELL", "celery -A app.devagent.devagent_worker inspect ping"]
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A app.devagent.worker.devagent_worker inspect ping",
+        ]
       interval: 1s
       timeout: 5s
       retries: 5

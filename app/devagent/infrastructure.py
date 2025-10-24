@@ -6,9 +6,7 @@ import json
 import subprocess
 import tempfile
 
-
 from ..remote.get_diff import get_diff
-
 
 DEVAGENT_SUPPORTED_REPOS = ["arkcompiler_runtime_core", "arkcompiler_ets_frontend"]
 DEVAGENT_REVIEW_RULES_CONFIG = "REVIEW_RULES"
@@ -16,10 +14,15 @@ DEVAGENT_REVIEW_RULES_DIR = ".REVIEW_RULES"
 
 
 def worker_get_range(n_tasks: int, group_idx: int, group_size: int):
+    assert group_size > 0
+    assert 0 <= group_idx
+    assert group_idx < group_size
+
     per_worker = n_tasks // group_size
     n_residue_tasks = n_tasks % group_size
     per_residue_worker = 1
     is_residue_worker = group_idx < n_residue_tasks
+
     # first n workers separate residue between themselves
 
     n_residue_workers_before = n_residue_tasks - is_residue_worker * (
@@ -29,8 +32,6 @@ def worker_get_range(n_tasks: int, group_idx: int, group_size: int):
     end_idx = (group_idx + 1) * per_worker + (
         n_residue_workers_before + 1 * is_residue_worker
     ) * per_residue_worker
-
-    print(f"n:{n_tasks}, i:{group_idx}, g:{group_size} -> ({start_idx},{end_idx})")
 
     return start_idx, end_idx
 
@@ -121,7 +122,6 @@ def populate_workdir(wd: str):
                     branch="feature/review_rules_test",
                     depth=1,
                 )
-                print(f"cloned {url} to {clone_dst}")
             except Exception as e:
                 if tries_left > 0:
                     tries_left -= 1
@@ -139,7 +139,7 @@ def get_diffs(urls: list):
     return [get_diff(url) for url in urls]
 
 
-def combine_diffs_by_rules(
+def _combine_diffs_by_rules(
     wd: str,
     rules: dict,
     diffs: list,
@@ -165,9 +165,9 @@ def combine_diffs_by_rules(
             for rule_repo_root, review_rules in rules.items():
                 if rule_repo_root != diff_repo_root:
                     continue
-                for dir, rules in review_rules:
+                for dir, local_rules in review_rules.items():
                     if dir == os.path.commonpath([dir, diff_file_abspath]):
-                        applicable_rules.update(rules)
+                        applicable_rules.update(local_rules)
 
             if len(applicable_rules) == 0:
                 continue
@@ -194,14 +194,16 @@ def _emit_diff(diff: str) -> str:
 
 
 def prepare_tasks(wd: str, rules: dict, diffs: list) -> list:
-    combined_diffs = combine_diffs_by_rules(diffs, rules, wd)
+    combined_diffs = _combine_diffs_by_rules(wd, rules, diffs)
 
     tasks = []
 
-    for repo_root, repo_combined_diffs in combined_diffs:
-        for rule, diff in repo_combined_diffs:
+    for repo_root, repo_combined_diffs in combined_diffs.items():
+        for rule, diff in repo_combined_diffs.items():
             patch = _emit_diff(diff)
             tasks.append((repo_root, patch, rule))
+
+    return tasks
 
 
 def _load_rules_from_repo_root(repo_root: str):
@@ -224,7 +226,9 @@ def _load_rules_from_repo_root(repo_root: str):
                     rules,
                 )
             )
-            review_rules.update({dir_abs: rules_abs})
+            existing_rules = set(review_rules.get(dir_abs, []))
+            existing_rules.update(rules_abs)
+            review_rules.update({dir_abs: existing_rules})
     return review_rules
 
 

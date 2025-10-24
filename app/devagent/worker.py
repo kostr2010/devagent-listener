@@ -1,4 +1,3 @@
-import os.path
 import celery
 import tempfile
 
@@ -44,9 +43,9 @@ def devagent_review_wrapup(self, devagent_review: list, wd: str):
 
     print(f"[{self.request.id}] cleaned workdir {wd}")
 
-    res = process_review_result()
+    res = process_review_result(devagent_review)
 
-    print(f"[{self.request.id}] processed review reult {res}")
+    print(f"[{self.request.id}] processed review result {res}")
 
     return res
 
@@ -73,6 +72,10 @@ def devagent_review_patches(
     self, arg_packs: list, group_idx: int, group_size: int
 ) -> list:
     start_idx, end_idx = worker_get_range(len(arg_packs), group_idx, group_size)
+
+    print(
+        f"[{self.request.id}] received tasks {[arg_packs[i] for i in range(start_idx, end_idx)]}"
+    )
 
     results = []
 
