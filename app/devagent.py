@@ -1,6 +1,6 @@
 import subprocess
 import os.path
-import os
+import shutil
 import json
 import git
 import tempfile
@@ -25,29 +25,34 @@ DEVAGENT_WORKER_NAME = "devagent_worker"
 devagent_worker = celery_instance(DEVAGENT_WORKER_NAME, CONFIG.DEVAGENT_REDIS_DB)
 
 
-def devagent_review_task(urls: list):
+def devagent_review(urls: list):
     workdir = tempfile.mkdtemp()
-    return celery.chain(
-        devagent_init_workdir.s(wd=workdir),
-        celery.group(devagent_get_diff.s(url=url) for url in urls),
-        devagent_schedule_review_tasks.s(wd=workdir),
-        devagent_review_postprocess.s(),
-    )
+    return celery.chain(devagent_review_setup.s(workdir), devagent_review_prs.s(urls))
 
 
-@devagent_worker.task
-def devagent_review_postprocess(devagent_review: list):
+def devagent_cleanup(
+    wd: str,
+):
+    shutil.rmtree(wd, ignore_errors=True)
+
+
+def devagent_review_prettify(devagent_review: list):
     results = {}
     errors = {}
 
     for elem in devagent_review:
+        print(json.dumps(elem, indent=2))
         repo = elem["repo"]
         if "error" in elem:
             error = elem["error"]
-            errors.update(repo, errors.get(repo, []).append(error))
+            res = errors.get(repo, [])
+            res.append(error)
+            errors.update({repo: res})
         elif "result" in elem:
-            violations = json.loads(elem["result"]["violations"])
-            results.update(repo, results.get(repo, []).append(violations))
+            violations = json.loads(elem["result"])["violations"]
+            res = results.get(repo, [])
+            res.append(violations)
+            results.update({repo: res})
         else:
             continue
 
@@ -64,7 +69,13 @@ def devagent_review_postprocess(devagent_review: list):
 
 
 @devagent_worker.task
-def devagent_init_workdir(wd: str) -> None:
+def devagent_review_wrapup(devagent_review: list, wd: str):
+    devagent_cleanup(wd)
+    return devagent_review_prettify(devagent_review)
+
+
+@devagent_worker.task
+def devagent_review_setup(wd: str) -> str:
     with Timer():
         for repo in DEVAGENT_SUPPORTED_REPOS:
             clone_dst = os.path.abspath(os.path.join(wd, repo))
@@ -93,6 +104,7 @@ def devagent_init_workdir(wd: str) -> None:
                         raise e
                 else:
                     should_retry = False
+    return wd
 
 
 @devagent_worker.task
@@ -147,8 +159,8 @@ def group_diffs_by_rule(diffs: list, rules: dict, wd: str) -> dict:
 
             applicable_rules = set()
 
-            for dir_abspath, rules_abspaths in rules:
-                if dir_abspath == os.path.commonpath(dir_abspath, diff_file_abspath):
+            for dir_abspath, rules_abspaths in rules.items():
+                if dir_abspath == os.path.commonpath([dir_abspath, diff_file_abspath]):
                     applicable_rules.update(rules_abspaths)
 
             if len(applicable_rules) == 0:
@@ -156,7 +168,8 @@ def group_diffs_by_rule(diffs: list, rules: dict, wd: str) -> dict:
 
             for rule in applicable_rules:
                 rule_combined_diff = rule_to_diffs.get(rule, [])
-                rule_to_diffs[rule] = rule_combined_diff.append(diff_file["diff"])
+                rule_combined_diff.append(diff_file["diff"])
+                rule_to_diffs[rule] = rule_combined_diff
 
     return rule_to_diffs
 
@@ -180,7 +193,7 @@ def extract_repo_from_rule_path(rule_path: str) -> str:
 
 
 @devagent_worker.task
-def devagent_review_run(cwd: str, patch_path: str, rule_path: str):
+def devagent_review_patch(cwd: str, patch_path: str, rule_path: str):
     try:
         cmd = ["devagent", "review", "--json", "--rule", rule_path, patch_path]
 
@@ -197,7 +210,8 @@ def devagent_review_run(cwd: str, patch_path: str, rule_path: str):
         stderr = devagent_result.stderr.decode("utf-8")
         if len(stderr) > 0 and "Error" in stderr:
             return {
-                "error": {"message": stderr, "patch": patch_path, "rule": rule_path}
+                "repo": os.path.basename(cwd),
+                "error": {"message": stderr, "patch": patch_path, "rule": rule_path},
             }
 
         stdout = devagent_result.stdout.decode("utf-8")
@@ -207,13 +221,13 @@ def devagent_review_run(cwd: str, patch_path: str, rule_path: str):
         return {"repo": os.path.basename(cwd), "error": f"{str(e)}"}
 
 
-def devagent_cleanup(workdir: str):
-    os.unlink(workdir)
-
-
-@devagent_worker.task
-def devagent_schedule_review_tasks(wd: str, diffs: list):
+@devagent_worker.task()
+def devagent_review_prs(
+    wd: str,
+    urls: list,
+):
     rules = load_rules(wd)
+    diffs = [get_diff(url) for url in urls]
 
     diffs_by_rule = group_diffs_by_rule(diffs, rules, wd)
 
@@ -221,13 +235,9 @@ def devagent_schedule_review_tasks(wd: str, diffs: list):
 
     patch_by_rule = {rule: diff_to_patch(diff) for rule, diff in diff_by_rule.items()}
 
-    res = celery.group(
-        devagent_review_run.s(
+    return celery.chord(
+        devagent_review_patch.s(
             extract_repo_from_rule_path(rule_path), patch_path, rule_path
         )
         for rule_path, patch_path in patch_by_rule.items()
-    ).delay()
-
-    devagent_cleanup(wd)
-
-    return res
+    )(devagent_review_wrapup.s(wd))

@@ -6,7 +6,7 @@ import logging
 import redis.asyncio
 
 from .redis import init_async_redis_conn
-from .devagent import devagent_review_task, devagent_worker
+from .devagent import devagent_review, devagent_worker
 from .config import CONFIG
 
 LISTENER_LOG = logging.getLogger(__name__)
@@ -119,7 +119,6 @@ def api_v1_devagent_task_code_review_action_get_validate_payload(
 
 async def api_v1_devagent_task_code_review_action_get(
     payload: str | None,
-    redis: redis.asyncio.Redis,
 ):
     api_v1_devagent_task_code_review_action_get_validate_payload(payload)
 
@@ -197,9 +196,9 @@ async def api_v1_devagent_task_code_review_action_run(
 
     urls = list(filter(lambda s: len(s) > 0, payload.split(";")))
 
-    print("here")
+    print(f"devagent_review parsed urls: {urls}")
 
-    task = devagent_review_task(urls).delay()
+    task = devagent_review(urls).delay()
 
     print(f"started task {task.id}")
 
@@ -229,9 +228,7 @@ async def api_v1_devagent_task_code_review(
     redis: redis.asyncio.Redis,
 ):
     if action == Action.ACTION_GET.value:
-        return await api_v1_devagent_task_code_review_action_get(
-            payload=payload, redis=redis
-        )
+        return await api_v1_devagent_task_code_review_action_get(payload=payload)
     elif action == Action.ACTION_RUN.value:
         return await api_v1_devagent_task_code_review_action_run(
             payload=payload,
