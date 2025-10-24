@@ -6,7 +6,7 @@ import logging
 import redis.asyncio
 
 from .redis import init_async_redis_conn
-from .devagent import devagent_review, devagent_worker
+from .devagent.worker import devagent_review_workflow, devagent_worker
 from .config import CONFIG
 
 LISTENER_LOG = logging.getLogger(__name__)
@@ -198,7 +198,7 @@ async def api_v1_devagent_task_code_review_action_run(
 
     print(f"devagent_review parsed urls: {urls}")
 
-    task = devagent_review(urls)
+    task = devagent_review_workflow(urls).apply_async()
 
     print(f"started task {task.id}")
 
