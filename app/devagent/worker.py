@@ -42,41 +42,45 @@ def devagent_review_wrapup(self, devagent_review: list, wd: str):
     try:
         clean_workdir(wd)
     except Exception as e:
-        msg = f"[{self.request.id}] clean_workdir(wd={wd}) failed with exception: {str(e)}"
+        msg = f"{_task_log_tag(self)} clean_workdir(wd={wd}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
         raise Exception(msg)
     else:
-        print(f"[{self.request.id}] cleaned workdir {wd}")
+        print(f"{_task_log_tag(self)} cleaned workdir {wd}")
 
     res = None
     try:
         res = process_review_result(devagent_review)
     except Exception as e:
-        msg = f"[{self.request.id}] process_review_result(devagent_review={devagent_review}) failed with exception: {str(e)}"
+        msg = f"{_task_log_tag(self)} process_review_result(devagent_review={devagent_review}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
         raise Exception(msg)
     else:
-        print(f"[{self.request.id}] processed review result {res}")
+        print(f"{_task_log_tag(self)} processed review result {res}")
 
     return res
 
 
 @devagent_worker.task(bind=True, track_started=True)
 def devagent_prepare_tasks(self, wd: str, urls: list):
+    print(f"{_task_log_tag(self)} preparing tasks for urls {urls}")
+
     try:
         populate_workdir(wd)
     except Exception as e:
-        msg = f"[{self.request.id}] populate_workdir(wd={wd}) failed with exception: {str(e)}"
+        msg = f"{_task_log_tag(self)} populate_workdir(wd={wd}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
         raise Exception(msg)
     else:
-        print(f"[{self.request.id}] populated workdir {wd}")
+        print(f"{_task_log_tag(self)} populated workdir {wd}")
 
     rules = None
     try:
         rules = load_rules(wd)
     except Exception as e:
-        msg = f"[{self.request.id}] load_rules(wd={wd}) failed with exception: {str(e)}"
+        msg = (
+            f"{_task_log_tag(self)} load_rules(wd={wd}) failed with exception: {str(e)}"
+        )
         _update_state_failed(self, e, msg)
         raise Exception(msg)
 
@@ -84,7 +88,7 @@ def devagent_prepare_tasks(self, wd: str, urls: list):
     try:
         diffs = get_diffs(urls)
     except Exception as e:
-        msg = f"[{self.request.id}] get_diffs(urls={urls}) failed with exception: {str(e)}"
+        msg = f"{_task_log_tag(self)} get_diffs(urls={urls}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
         raise Exception(msg)
 
@@ -92,11 +96,11 @@ def devagent_prepare_tasks(self, wd: str, urls: list):
     try:
         tasks = prepare_tasks(wd, rules, diffs)
     except Exception as e:
-        msg = f"[{self.request.id}] prepare_tasks(wd={wd},rules={rules},diffs={diffs}) failed with exception: {str(e)}"
+        msg = f"{_task_log_tag(self)} prepare_tasks(wd={wd},rules={rules},diffs={diffs}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
         raise Exception(msg)
     else:
-        print(f"[{self.request.id}] prepared tasks {tasks}")
+        print(f"{_task_log_tag(self)} prepared tasks {tasks}")
 
     return tasks
 
@@ -112,12 +116,12 @@ def devagent_review_patches(
     try:
         start_idx, end_idx = worker_get_range(n_tasks, group_idx, group_size)
     except Exception as e:
-        msg = f"[{self.request.id}] worker_get_range(n_tasks={n_tasks},group_idx={group_idx}, group_size={group_size}) failed with exception: {str(e)}"
+        msg = f"{_task_log_tag(self)} worker_get_range(n_tasks={n_tasks},group_idx={group_idx}, group_size={group_size}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
         raise Exception(msg)
     else:
         print(
-            f"[{self.request.id}] received tasks {[arg_packs[i] for i in range(start_idx, end_idx)]}"
+            f"{_task_log_tag(self)} received tasks {[arg_packs[i] for i in range(start_idx, end_idx)]}"
         )
 
     results = []
@@ -131,7 +135,7 @@ def devagent_review_patches(
                 repo_root, patch_path, rule_path
             )
         except Exception as e:
-            msg = f"[{self.request.id}] devagent_review_patch(repo_root={repo_root},patch_path={patch_path}, rule_path={rule_path}) failed with exception: {str(e)}"
+            msg = f"{_task_log_tag(self)} devagent_review_patch(repo_root={repo_root},patch_path={patch_path}, rule_path={rule_path}) failed with exception: {str(e)}"
             _update_state_failed(self, e, msg)
             raise Exception(msg)
 
@@ -144,3 +148,7 @@ def _update_state_failed(self, exc: Exception, msg: str) -> None:
     self.update_state(
         state="FAILURE", meta={"exc_type": type(exc).__name__, "exc_message": msg}
     )
+
+
+def _task_log_tag(self) -> str:
+    return f"[{self.request.root_id}] -> [{self.request.id}]"

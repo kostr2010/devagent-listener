@@ -201,23 +201,21 @@ async def api_v1_devagent_task_code_review_action_run(
 
     urls = list(filter(lambda s: len(s) > 0, payload.split(";")))
 
-    print(f"devagent_review parsed urls: {urls}")
-
     task = devagent_review_workflow(urls).apply_async()
 
-    print(f"started task {task.id}")
+    print(f"[{task.id}] started task {task.id} for payload {payload}")
 
     encoded_payload = encode_devagent_review_payload(payload)
 
     # get running task for the same payload
     existing_task = await redis.get(encoded_payload)
 
-    print(f"existing task {existing_task}")
+    print(f"[{task.id}] removing existing task {existing_task}")
 
     # immediately override with new task
     await redis.set(encoded_payload, task.id, ex=3600)
 
-    print(f"new task {await redis.get(encoded_payload)}")
+    print(f"[{task.id}] new task stored in redis {await redis.get(encoded_payload)}")
 
     # terminate running task if it was
     if existing_task:

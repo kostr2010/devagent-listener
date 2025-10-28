@@ -7,14 +7,35 @@ PYTHON = $(or $(wildcard $(VENV_PYTHON)), $(SYSTEM_PYTHON))
 worker:
 	docker compose up listener_devagent_worker
 
+worker_active:
+	docker exec devagent_listener_devagent_worker celery -A app.devagent.worker.devagent_worker inspect active
+
+worker_logs:
+	docker logs devagent_listener_devagent_worker
+
+worker_logs_f:
+	docker logs devagent_listener_devagent_worker -f
+
 redis:
 	docker compose up -d listener_redis
+
+redis_logs:
+	docker logs devagent_listener_redis
+
+redis_logs_f:
+	docker logs devagent_listener_redis -f
 
 app:
 	docker compose up -d --build listener_app 
 
 app_no_deps:
 	docker compose up -d --no-deps --build listener_app 
+
+app_logs:
+	docker logs devagent_listener_app
+
+app_logs_f:
+	docker logs devagent_listener_app -f
 
 down:
 	docker compose rm -s -v -f listener_app

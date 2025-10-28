@@ -8,8 +8,9 @@ import tempfile
 
 from app.remote.get_diff import get_diff
 
-DEVAGENT_REVIEW_RULES_CONFIG = "REVIEW_RULES"
-DEVAGENT_REVIEW_RULES_DIR = ".REVIEW_RULES"
+DEVAGENT_RULES_REPO = "arkcompiler_development_rules"
+DEVAGENT_REVIEW_RULES_DIR = "REVIEW_RULES"
+DEVAGENT_REVIEW_RULES_CONFIG = ".REVIEW_RULES"
 
 
 def worker_get_range(n_tasks: int, group_idx: int, group_size: int):
@@ -108,14 +109,19 @@ def process_review_result(devagent_review: list):
 
 
 def populate_workdir(wd: str):
-    DEVAGENT_SUPPORTED_REPOS = ["arkcompiler_runtime_core", "arkcompiler_ets_frontend"]
     DEVAGENT_CONFIG_PATH = "/.devagent.toml"
-
     assert os.path.exists(DEVAGENT_CONFIG_PATH)
 
-    for repo in DEVAGENT_SUPPORTED_REPOS:
+    repos = [
+        ("arkcompiler_runtime_core", "openharmony", "OpenHarmony_feature_20250702"),
+        ("arkcompiler_ets_frontend", "openharmony", "OpenHarmony_feature_20250702"),
+        (DEVAGENT_RULES_REPO, "nazarovkonstantin", "main"),
+    ]
+
+    for r in repos:
+        repo, owner, branch = r
         clone_dst = os.path.abspath(os.path.join(wd, repo))
-        url = f"https://gitcode.com/nazarovkonstantin/{repo}.git"
+        url = f"https://gitcode.com/{owner}/{repo}.git"
 
         should_retry = True
         tries_left = 5
@@ -126,7 +132,7 @@ def populate_workdir(wd: str):
                     url,
                     clone_dst,
                     allow_unsafe_protocols=True,
-                    branch="feature/review_rules_test",
+                    branch=branch,
                     depth=1,
                 )
             except Exception as e:
@@ -176,12 +182,9 @@ def _combine_diffs_by_rules(
 
             applicable_rules = set()
 
-            for rule_repo_root, review_rules in rules.items():
-                if rule_repo_root != diff_repo_root:
-                    continue
-                for dir, local_rules in review_rules.items():
-                    if dir == os.path.commonpath([dir, diff_file_abspath]):
-                        applicable_rules.update(local_rules)
+            for rule_dir, review_rules in rules.items():
+                if rule_dir == os.path.commonpath([rule_dir, diff_file_abspath]):
+                    applicable_rules.update(review_rules)
 
             if len(applicable_rules) == 0:
                 continue
@@ -245,6 +248,7 @@ def _load_rules_from_config(cfg: str) -> dict:
 
 
 def _load_rules_from_repo_root(repo_root: str) -> dict:
+
     review_rules = {}
 
     rules_config_name = DEVAGENT_REVIEW_RULES_CONFIG
@@ -253,42 +257,46 @@ def _load_rules_from_repo_root(repo_root: str) -> dict:
         print(f"No {rules_config_name} file was found in the repo root {repo_root}")
         return review_rules
 
-    rules_dir_name = DEVAGENT_REVIEW_RULES_DIR
-    rules_dir = os.path.abspath(os.path.join(repo_root, rules_dir_name))
-    if not os.path.exists(rules_dir):
-        print(f"No {rules_dir_name} dir was found in the repo root {repo_root}")
-        return review_rules
-
     with open(rules_config) as cfg:
         content = cfg.read()
-        rules = _load_rules_from_config(content)
-
-        for dir, rules in rules.items():
-            dir_abs = os.path.abspath(os.path.join(repo_root, dir))
-            rules_abs = list(
-                map(
-                    lambda rule: os.path.abspath(os.path.join(rules_dir, rule)),
-                    rules,
-                )
-            )
-            review_rules.update({dir_abs: sorted(rules_abs)})
+        review_rules = _load_rules_from_config(content)
 
     return review_rules
 
 
-def load_rules(workdir: str) -> dict:
-    res = {}
+def _normalize_rules(wd: str, rules_repo_root: str, rules: dict):
+    rules_dir = os.path.abspath(
+        os.path.join(rules_repo_root, DEVAGENT_REVIEW_RULES_DIR)
+    )
+    review_rules = {}
+    if not os.path.exists(rules_dir):
+        print(
+            f"No {DEVAGENT_REVIEW_RULES_DIR} dir was found in the repo root {rules_repo_root}"
+        )
+        return review_rules
+    for dir, rules in rules.items():
+        dir_abs = os.path.abspath(os.path.join(wd, dir))
+        rules_abs = list(
+            map(
+                lambda rule: os.path.abspath(os.path.join(rules_dir, rule)),
+                rules,
+            )
+        )
+        review_rules.update({dir_abs: sorted(rules_abs)})
 
-    for repo in os.listdir(workdir):
-        repo_root = os.path.abspath(os.path.join(workdir, repo))
+    return review_rules
 
-        review_rules = _load_rules_from_repo_root(repo_root)
 
-        for dir, rules in review_rules.items():
-            assert os.path.exists(dir)
-            for rule in rules:
-                assert os.path.exists(rule)
+def load_rules(wd: str) -> dict:
+    repo_root = os.path.abspath(os.path.join(wd, DEVAGENT_RULES_REPO))
 
-        res.update({repo_root: review_rules})
+    review_rules = _load_rules_from_repo_root(repo_root)
 
-    return res
+    normalized_rules = _normalize_rules(wd, repo_root, review_rules)
+
+    for dir, rules in normalized_rules.items():
+        assert os.path.exists(dir)
+        for rule in rules:
+            assert os.path.exists(rule)
+
+    return normalized_rules
