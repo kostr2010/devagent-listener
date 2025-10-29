@@ -6,56 +6,6 @@ import json
 from typing import Any, Mapping
 
 
-def _convert_to_standard_diff(api_response: list) -> list[dict[str, str]]:
-    """
-    Convert Gitee API response to standard diff format.
-
-    Args:
-        api_response: Raw response from Gitee API
-
-    Returns:
-        List of dicts with 'file' and 'diff' keys
-    """
-    result = []
-
-    for diff_item in api_response:
-        patch = diff_item.get("patch")
-
-        # Extract file path
-        file_path = patch.get("new_path", "unknown")
-
-        # Build standard diff format from the content
-        diff_lines = []
-
-        # Add diff header
-        old_path = patch.get("old_path", file_path)
-        new_path = patch.get("new_path", file_path)
-        # FIXME: remove when not needed
-        diff_lines.append(f"diff --git a/{old_path} b/{new_path}")
-        diff_lines.append(f"--- a/{old_path}")
-        diff_lines.append(f"+++ b/{new_path}")
-
-        # Process text content
-        text_lines = patch.get("diff", "").split("\n")
-
-        for line_item in text_lines:
-            diff_lines.append(line_item)
-
-        # Join lines into a single diff string
-        diff_str = "\n".join(diff_lines)
-
-        result.append(
-            {
-                "file": file_path,
-                "diff": diff_str,
-                "added_lines": diff_item.get("additions", 0),
-                "removed_lines": diff_item.get("deletions", 0),
-            }
-        )
-
-    return result
-
-
 def get_diff(token: str, url: str) -> Mapping[str, Any]:
     """
     Fetch Pull Request data from Gitee API.
@@ -114,3 +64,58 @@ def get_diff(token: str, url: str) -> Mapping[str, Any]:
         return {"error": f"Failed to parse JSON response: {str(e)}", "files": []}
     except Exception as e:
         return {"error": f"Unexpected error: {str(e)}", "files": []}
+
+
+###########
+# private #
+###########
+
+
+def _convert_to_standard_diff(api_response: list) -> list[dict[str, str]]:
+    """
+    Convert Gitee API response to standard diff format.
+
+    Args:
+        api_response: Raw response from Gitee API
+
+    Returns:
+        List of dicts with 'file' and 'diff' keys
+    """
+    result = []
+
+    for diff_item in api_response:
+        patch = diff_item.get("patch")
+
+        # Extract file path
+        file_path = patch.get("new_path", "unknown")
+
+        # Build standard diff format from the content
+        diff_lines = []
+
+        # Add diff header
+        old_path = patch.get("old_path", file_path)
+        new_path = patch.get("new_path", file_path)
+        # FIXME: remove when not needed
+        diff_lines.append(f"diff --git a/{old_path} b/{new_path}")
+        diff_lines.append(f"--- a/{old_path}")
+        diff_lines.append(f"+++ b/{new_path}")
+
+        # Process text content
+        text_lines = patch.get("diff", "").split("\n")
+
+        for line_item in text_lines:
+            diff_lines.append(line_item)
+
+        # Join lines into a single diff string
+        diff_str = "\n".join(diff_lines)
+
+        result.append(
+            {
+                "file": file_path,
+                "diff": diff_str,
+                "added_lines": diff_item.get("additions", 0),
+                "removed_lines": diff_item.get("deletions", 0),
+            }
+        )
+
+    return result

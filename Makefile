@@ -25,6 +25,9 @@ redis_logs:
 redis_logs_f:
 	docker logs devagent_listener_redis -f
 
+postgres:
+	docker compose up -d listener_postgres
+
 app:
 	docker compose up -d --build listener_app 
 
@@ -41,6 +44,7 @@ down:
 	docker compose rm -s -v -f listener_app
 	docker compose rm -s -v -f listener_devagent_worker
 	docker compose rm -s -v -f listener_redis
+	docker compose rm -s -v -f listener_postgres
 
 test:
 	$(PYTHON) -m unittest discover -v -s tests -p "*_test.py"
