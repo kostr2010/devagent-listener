@@ -1,11 +1,14 @@
 import celery
 
-from ..config import CONFIG
+from app.config import CONFIG
 
 
-def celery_instance(
-    worker_name: str, redis_db: int, expiry: int = 3600
-) -> celery.Celery:
+class LoggingTask(celery.Task):
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        super().on_failure(exc, task_id, args, kwargs, einfo)
+
+
+def celery_instance(worker_name: str, redis_db: int) -> celery.Celery:
     usr = CONFIG.REDIS_USERNAME
     pwd = CONFIG.REDIS_PASSWORD
     host = CONFIG.REDIS_HOST
@@ -16,9 +19,10 @@ def celery_instance(
         worker_name,
         broker=redis_url,
         backend=redis_url,
+        task_cls="app.celery.celery:LoggingTask",
     )
 
     app.conf.task_track_started = True
-    app.conf.result_expires = expiry
+    app.conf.result_expires = CONFIG.EXPIRY_DEVAGENT_WORKER
 
     return app

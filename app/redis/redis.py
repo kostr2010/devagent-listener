@@ -1,6 +1,6 @@
 import redis.asyncio
 
-from .config import CONFIG
+from app.config import CONFIG
 
 
 def init_async_redis_conn(db: str | int) -> redis.asyncio.Redis:

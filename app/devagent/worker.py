@@ -1,133 +1,110 @@
 import celery
+import inspect
+import celery.exceptions
+import traceback
 import tempfile
 
 from app.celery.celery import celery_instance
 from app.config import CONFIG
 
-from .infrastructure import populate_workdir, get_diffs, load_rules, prepare_tasks
-from .infrastructure import clean_workdir, process_review_result
-from .infrastructure import devagent_review_patch, worker_get_range
+from .infrastructure.launch_review import (
+    populate_workdir,
+    get_diffs,
+    load_rules,
+    prepare_tasks,
+    store_task_info_to_redis,
+)
+from .infrastructure.review_patches import devagent_review_patch, worker_get_range
+from .infrastructure.wrapup import (
+    store_errors_to_postgres,
+    clean_workdir,
+    process_review_result,
+)
+
+DEVAGENT_REVIEW_GROUP_SIZE = 12
 
 DEVAGENT_WORKER_NAME = "devagent_worker"
 
-DEVAGENT_REVIEW_GROUP_SIZE = 8
 
-devagent_worker = celery_instance(DEVAGENT_WORKER_NAME, CONFIG.DEVAGENT_REDIS_DB)
-
-
-def devagent_review_workflow(urls: list):
-    """
-    Create workflow for the devagent review. Client has to launch the task on their side
-
-    Args:
-        urls: List of urls for PRs for review
-
-    Returns:
-        Celery Chain that handles review for these PRs
-    """
-    wd = tempfile.mkdtemp()
-
-    return celery.chain(
-        devagent_prepare_tasks.s(wd, urls),
-        celery.group(
-            devagent_review_patches.s(i, DEVAGENT_REVIEW_GROUP_SIZE)
-            for i in range(DEVAGENT_REVIEW_GROUP_SIZE)
-        ),
-        devagent_review_wrapup.s(wd),
-    )
+devagent_worker = celery_instance(DEVAGENT_WORKER_NAME, CONFIG.REDIS_DEVAGENT_DB)
 
 
 @devagent_worker.task(bind=True, track_started=True)
-def devagent_review_wrapup(self, devagent_review: list, wd: str):
+def launch_review(self, urls: list) -> list[tuple[str, str, str]]:
+    task_id = self.request.id
+    log_tag = f"[{task_id}]"
+
+    wd = None
     try:
-        clean_workdir(wd)
+        wd = tempfile.mkdtemp()
     except Exception as e:
-        msg = f"{_task_log_tag(self)} clean_workdir(wd={wd}) failed with exception: {str(e)}"
-        _update_state_failed(self, e, msg)
-        raise Exception(msg)
-    else:
-        print(f"{_task_log_tag(self)} cleaned workdir {wd}")
-
-    res = None
-    try:
-        res = process_review_result(devagent_review)
-    except Exception as e:
-        msg = f"{_task_log_tag(self)} process_review_result(devagent_review={devagent_review}) failed with exception: {str(e)}"
-        _update_state_failed(self, e, msg)
-        raise Exception(msg)
-    else:
-        print(f"{_task_log_tag(self)} processed review result {res}")
-
-    return res
-
-
-@devagent_worker.task(bind=True, track_started=True)
-def devagent_prepare_tasks(self, wd: str, urls: list):
-    print(f"{_task_log_tag(self)} preparing tasks for urls {urls}")
-
-    try:
-        populate_workdir(wd)
-    except Exception as e:
-        msg = f"{_task_log_tag(self)} populate_workdir(wd={wd}) failed with exception: {str(e)}"
-        _update_state_failed(self, e, msg)
-        raise Exception(msg)
-    else:
-        print(f"{_task_log_tag(self)} populated workdir {wd}")
-
-    rules = None
-    try:
-        rules = load_rules(wd)
-    except Exception as e:
-        msg = (
-            f"{_task_log_tag(self)} load_rules(wd={wd}) failed with exception: {str(e)}"
-        )
-        _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(_exception_message(log_tag))
 
     diffs = None
     try:
         diffs = get_diffs(urls)
     except Exception as e:
-        msg = f"{_task_log_tag(self)} get_diffs(urls={urls}) failed with exception: {str(e)}"
-        _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(_exception_message(log_tag))
+    else:
+        print(f"{log_tag} got diffs of urls {urls}")
+
+    try:
+        populate_workdir(wd, diffs)
+    except Exception as e:
+        raise celery.exceptions.TaskError(_exception_message(log_tag))
+    else:
+        print(f"{log_tag} populated workdir {wd}")
+
+    rules = None
+    try:
+        rules = load_rules(wd)
+    except Exception as e:
+        raise celery.exceptions.TaskError(_exception_message(log_tag))
+    else:
+        print(f"{log_tag} loaded rules {rules}")
 
     tasks = None
     try:
-        tasks = prepare_tasks(wd, rules, diffs)
+        tasks = prepare_tasks(task_id, wd, rules, diffs)
     except Exception as e:
-        msg = f"{_task_log_tag(self)} prepare_tasks(wd={wd},rules={rules},diffs={diffs}) failed with exception: {str(e)}"
-        _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(_exception_message(log_tag))
     else:
-        print(f"{_task_log_tag(self)} prepared tasks {tasks}")
+        print(f"{log_tag} prepared {len(tasks)} tasks {tasks}")
 
-    return tasks
+    try:
+        store_task_info_to_redis(task_id=task_id, wd=wd, tasks=tasks)
+    except Exception as e:
+        raise celery.exceptions.TaskError(_exception_message(log_tag))
+    else:
+        print(f"{log_tag} stored task info to redis")
+
+    return celery.chord(
+        [
+            review_patches.s(tasks, i, DEVAGENT_REVIEW_GROUP_SIZE)
+            for i in range(DEVAGENT_REVIEW_GROUP_SIZE)
+        ],
+    )(wrapup.s(wd))
 
 
 @devagent_worker.task(bind=True, track_started=True)
-def devagent_review_patches(
+def review_patches(
     self, arg_packs: list, group_idx: int, group_size: int
-) -> list:
-    start_idx = None
-    end_idx = None
-    n_tasks = len(arg_packs)
+) -> list[dict]:
+    log_tag = f"[{self.request.root_id}] -> [{self.request.id}]"
 
+    tasks = None
     try:
-        start_idx, end_idx = worker_get_range(n_tasks, group_idx, group_size)
+        start_idx, end_idx = worker_get_range(len(arg_packs), group_idx, group_size)
+        tasks = [arg_packs[i] for i in range(start_idx, end_idx)]
     except Exception as e:
-        msg = f"{_task_log_tag(self)} worker_get_range(n_tasks={n_tasks},group_idx={group_idx}, group_size={group_size}) failed with exception: {str(e)}"
-        _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(_exception_message(log_tag))
     else:
-        print(
-            f"{_task_log_tag(self)} received tasks {[arg_packs[i] for i in range(start_idx, end_idx)]}"
-        )
+        print(f"{log_tag} received {len(tasks)} tasks {tasks}")
 
     results = []
 
-    for i in range(start_idx, end_idx):
-        repo_root, patch_path, rule_path = arg_packs[i]
+    for task in tasks:
+        repo_root, patch_path, rule_path = task
         patch_review_result = None
 
         try:
@@ -135,20 +112,61 @@ def devagent_review_patches(
                 repo_root, patch_path, rule_path
             )
         except Exception as e:
-            msg = f"{_task_log_tag(self)} devagent_review_patch(repo_root={repo_root},patch_path={patch_path}, rule_path={rule_path}) failed with exception: {str(e)}"
-            _update_state_failed(self, e, msg)
-            raise Exception(msg)
+            raise celery.exceptions.TaskError(_exception_message(log_tag))
 
         results.append(patch_review_result)
 
     return results
 
 
-def _update_state_failed(self, exc: Exception, msg: str) -> None:
-    self.update_state(
-        state="FAILURE", meta={"exc_type": type(exc).__name__, "exc_message": msg}
-    )
+@devagent_worker.task(bind=True, track_started=True)
+def wrapup(
+    self,
+    devagent_review: list,
+    wd: str,
+) -> dict:
+    log_tag = f"[{self.request.root_id}] -> [{self.request.id}]"
+
+    rules = None
+    try:
+        rules = load_rules(wd)
+    except Exception as e:
+        raise celery.exceptions.TaskError(_exception_message(log_tag))
+    else:
+        print(f"{log_tag} loaded rules {rules}")
+
+    res = None
+    try:
+        res = process_review_result(rules, devagent_review)
+    except Exception as e:
+        raise celery.exceptions.TaskError(_exception_message(log_tag))
+    else:
+        print(f"{log_tag} processed review result {res}")
+
+    try:
+        store_errors_to_postgres(self.request.root_id, res)
+    except Exception as e:
+        raise celery.exceptions.TaskError(_exception_message(log_tag))
+    else:
+        print(f"{log_tag} stored errors to postgres")
+
+    try:
+        clean_workdir(wd)
+    except Exception as e:
+        raise celery.exceptions.TaskError(_exception_message(log_tag))
+    else:
+        print(f"{log_tag} cleaned workdir {wd}")
+
+    return res
 
 
-def _task_log_tag(self) -> str:
-    return f"[{self.request.root_id}] -> [{self.request.id}]"
+###########
+# private #
+###########
+
+
+def _exception_message(tag: str) -> str:
+    caller = inspect.stack()[1].function
+    exc_message = traceback.format_exc().split("\n")
+
+    return f"[{tag}] {caller} failed with an exception {exc_message}"

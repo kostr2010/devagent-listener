@@ -6,80 +6,6 @@ import json
 from typing import Any, Mapping
 
 
-def _convert_to_standard_diff(api_response: dict) -> list[dict[str, str]]:
-    """
-    Convert GitCode API response to standard diff format.
-
-    Args:
-        api_response: Raw response from GitCode API
-
-    Returns:
-        List of dicts with 'file' and 'diff' keys
-    """
-    result = []
-
-    if "diffs" not in api_response:
-        return result
-
-    for diff_item in api_response["diffs"]:
-        # Extract file path
-        file_path = diff_item.get("statistic", {}).get("path", "unknown")
-
-        # Build standard diff format from the content
-        diff_lines = []
-
-        # Add diff header
-        old_path = diff_item.get("statistic", {}).get("old_path", file_path)
-        new_path = diff_item.get("statistic", {}).get("new_path", file_path)
-        # FIXME: remove when not needed
-        diff_lines.append(f"diff --git a/{old_path} b/{new_path}")
-        diff_lines.append(f"--- a/{old_path}")
-        diff_lines.append(f"+++ b/{new_path}")
-
-        # Process text content
-        content = diff_item.get("content", {})
-        text_lines = content.get("text", [])
-
-        for line_item in text_lines:
-            line_content = line_item.get("line_content", "")
-            line_type = line_item.get("type", "")
-
-            # Handle different line types
-            if line_type == "match":
-                # Hunk header (e.g., @@ -0,0 +1,29 @@)
-                diff_lines.append(line_content)
-            elif line_type == "new":
-                # Added line
-                diff_lines.append(f"+{line_content}")
-            elif line_type == "old":
-                # Removed line
-                diff_lines.append(f"-{line_content}")
-            elif line_type == "context" or line_type == "":
-                # Context line (unchanged)
-                diff_lines.append(f" {line_content}")
-
-        # Join lines into a single diff string
-        diff_str = "\n".join(diff_lines)
-
-        result.append(
-            {
-                "file": file_path,
-                "diff": diff_str,
-                "added_lines": diff_item.get("added_lines", 0),
-                "removed_lines": diff_item.get("remove_lines", 0),
-            }
-        )
-
-    return result
-
-
-def parse_pr_url(url: str):
-    parsed_url = urllib.parse.urlparse(url)
-    # ['', 'owner', 'repo', 'pull', 'pr_number']
-    url_path = parsed_url.path.split("/")
-    return {"owner": url_path[1], "repo": url_path[2], "pr_number": url_path[4]}
-
-
 def get_diff(token: str, url: str) -> Mapping[str, Any]:
     """
     Fetch Pull Request data from GitCode API.
@@ -153,3 +79,75 @@ def get_diff(token: str, url: str) -> Mapping[str, Any]:
         return {"error": f"Failed to parse JSON response: {str(e)}", "files": []}
     except Exception as e:
         return {"error": f"Unexpected error: {str(e)}", "files": []}
+
+
+###########
+# private #
+###########
+
+
+def _convert_to_standard_diff(api_response: dict) -> list[dict[str, str]]:
+    """
+    Convert GitCode API response to standard diff format.
+
+    Args:
+        api_response: Raw response from GitCode API
+
+    Returns:
+        List of dicts with 'file' and 'diff' keys
+    """
+    result = []
+
+    if "diffs" not in api_response:
+        return result
+
+    for diff_item in api_response["diffs"]:
+        # Extract file path
+        file_path = diff_item.get("statistic", {}).get("path", "unknown")
+
+        # Build standard diff format from the content
+        diff_lines = []
+
+        # Add diff header
+        old_path = diff_item.get("statistic", {}).get("old_path", file_path)
+        new_path = diff_item.get("statistic", {}).get("new_path", file_path)
+        # FIXME: remove when not needed
+        diff_lines.append(f"diff --git a/{old_path} b/{new_path}")
+        diff_lines.append(f"--- a/{old_path}")
+        diff_lines.append(f"+++ b/{new_path}")
+
+        # Process text content
+        content = diff_item.get("content", {})
+        text_lines = content.get("text", [])
+
+        for line_item in text_lines:
+            line_content = line_item.get("line_content", "")
+            line_type = line_item.get("type", "")
+
+            # Handle different line types
+            if line_type == "match":
+                # Hunk header (e.g., @@ -0,0 +1,29 @@)
+                diff_lines.append(line_content)
+            elif line_type == "new":
+                # Added line
+                diff_lines.append(f"+{line_content}")
+            elif line_type == "old":
+                # Removed line
+                diff_lines.append(f"-{line_content}")
+            elif line_type == "context" or line_type == "":
+                # Context line (unchanged)
+                diff_lines.append(f" {line_content}")
+
+        # Join lines into a single diff string
+        diff_str = "\n".join(diff_lines)
+
+        result.append(
+            {
+                "file": file_path,
+                "diff": diff_str,
+                "added_lines": diff_item.get("added_lines", 0),
+                "removed_lines": diff_item.get("remove_lines", 0),
+            }
+        )
+
+    return result

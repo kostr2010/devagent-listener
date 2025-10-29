@@ -1,6 +1,11 @@
 services:
   listener_app:
-    build: .
+    build:
+      context: .
+      args:
+        DEVAGENT_PROVIDER: ${DEVAGENT_PROVIDER}
+        DEVAGENT_MODEL: ${DEVAGENT_MODEL}
+        DEVAGENT_API_KEY: ${DEVAGENT_API_KEY}
     container_name: devagent_listener_app
     env_file: .env
     environment:
@@ -16,13 +21,24 @@ services:
     depends_on:
       listener_redis:
         condition: "service_healthy"
+      listener_postgres:
+        condition: "service_healthy"
       listener_devagent_worker:
         condition: "service_healthy"
+    logging:
+      options:
+        max-size: "200m"
 
   listener_devagent_worker:
-    build: .
+    build:
+      context: .
+      args:
+        DEVAGENT_PROVIDER: ${DEVAGENT_PROVIDER}
+        DEVAGENT_MODEL: ${DEVAGENT_MODEL}
+        DEVAGENT_API_KEY: ${DEVAGENT_API_KEY}
     container_name: devagent_listener_devagent_worker
-    command: celery -A app.devagent.worker.devagent_worker worker --loglevel=info
+    env_file: .env
+    command: celery -A app.devagent.worker.devagent_worker worker --loglevel=info --autoscale=10,2
     volumes:
       - ./app:/app
     healthcheck:
@@ -31,17 +47,21 @@ services:
           "CMD-SHELL",
           "celery -A app.devagent.worker.devagent_worker inspect ping",
         ]
-      interval: 1s
+      interval: 5s
       timeout: 5s
       retries: 5
     depends_on:
       - listener_redis
+    logging:
+      options:
+        max-size: "200m"
 
   listener_redis:
-    image: redis:6-alpine
+    image: redis:8-alpine
     container_name: devagent_listener_redis
     # environment:
     #   REDIS_DISABLE_DEFAULT_USER: true
+    env_file: .env
     restart: always
     command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD} --port ${REDIS_PORT}
     ports:
@@ -52,9 +72,31 @@ services:
           "CMD-SHELL",
           "redis-cli -u redis://${REDIS_USERNAME}:${REDIS_PASSWORD}@${REDIS_HOST}:${REDIS_PORT} PING | grep PONG",
         ]
-      interval: 1s
+      interval: 5s
       timeout: 5s
       retries: 5
+    logging:
+      options:
+        max-size: "200m"
+
+  listener_postgres:
+    image: postgres:15.1-alpine3.16
+    container_name: devagent_listener_postgres
+    env_file: .env
+    command: -p ${POSTGRES_PORT} -c 'max_connections=200'
+    ports:
+      - "${POSTGRES_PORT}:${POSTGRES_PORT}"
+    restart: always
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: PGPASSWORD=${POSTGRES_PASSWORD} pg_isready -p ${POSTGRES_PORT} -U ${POSTGRES_USER} -d ${POSTGRES_DB}
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    logging:
+      options:
+        max-size: "200m"
 
 volumes:
   postgres_data:
