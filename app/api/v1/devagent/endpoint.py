@@ -6,11 +6,13 @@ import redis.asyncio
 
 from .tasks.code_review.code_review import handle_code_review
 from .tasks.user_feedback.user_feedback import handle_user_feedback
+from .tasks.task_info.task_info import handle_task_info
 
 
 class TaskKind(enum.IntEnum):
     TASK_KIND_CODE_REVIEW = 0  # Code review
     TASK_KIND_USER_FEEDBACK = 1  # Feedback for the rules
+    TASK_KIND_TASK_INFO = 2  # Misc info about the task
 
 
 async def api_v1_devagent_endpoint(
@@ -25,18 +27,18 @@ async def api_v1_devagent_endpoint(
     _validate_task_kind(task_kind)
 
     if task_kind == TaskKind.TASK_KIND_CODE_REVIEW.value:
-        return handle_code_review(
+        return handle_code_review(action=action, payload=payload)
+
+    if task_kind == TaskKind.TASK_KIND_USER_FEEDBACK.value:
+        return await handle_user_feedback(
             postgres=postgres,
             redis=redis,
             action=action,
             payload=payload,
         )
 
-    if task_kind == TaskKind.TASK_KIND_USER_FEEDBACK.value:
-        return await handle_user_feedback(
-            action=action,
-            payload=payload,
-        )
+    if task_kind == TaskKind.TASK_KIND_TASK_INFO.value:
+        return await handle_task_info(redis=redis, action=action, payload=payload)
 
     raise fastapi.HTTPException(
         status_code=500,

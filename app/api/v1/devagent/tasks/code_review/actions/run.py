@@ -7,15 +7,13 @@ from app.devagent.worker import create_devagent_review_workflow
 
 
 def handle_code_review_run(
-    postgres: sqlalchemy.ext.asyncio.AsyncSession,
-    redis: redis.asyncio.Redis,
     payload: str | None,
 ):
     _validate_payload(payload)
 
     urls = _parse_urls(payload)
 
-    task = create_devagent_review_workflow(urls, postgres, redis).apply_async()
+    task = create_devagent_review_workflow(urls).apply_async()
 
     print(f"[{task.id}] started task {task.id} for payload {payload}")
 

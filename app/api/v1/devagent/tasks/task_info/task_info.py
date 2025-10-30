@@ -1,21 +1,25 @@
 import fastapi
 import enum
-import sqlalchemy.ext.asyncio
 import redis.asyncio
 
-from .actions.run import handle_code_review_run
-from .actions.get import handle_code_review_get
+from .actions.get import task_info_get
+from .actions.set import task_info_set
 
 
 class Action(enum.IntEnum):
     ACTION_GET = 0
-    ACTION_RUN = 1
+    ACTION_SET = 1
 
 
-def handle_code_review(action: int, payload: str | None) -> dict:
-    """Work with the code review of the devagent for given PRs
+async def handle_task_info(
+    redis: redis.asyncio.Redis,
+    action: int,
+    payload: str | None,
+) -> dict:
+    """Work with the temporary task meta information that is stored on the server
 
     Args:
+        redis (redis.asyncio.Redis): Redis connection to take task metadata from
         action (int): Action required by the endpoint. Can be one of the `Action` enum
         payload (str | None): Payload for the endpoint. Interpreted differently depending on the action
 
@@ -29,14 +33,19 @@ def handle_code_review(action: int, payload: str | None) -> dict:
     _validate_action(action)
 
     if Action.ACTION_GET.value == action:
-        return handle_code_review_get(payload)
+        return await task_info_get(payload, redis)
 
-    if Action.ACTION_RUN.value == action:
-        return handle_code_review_run(payload)
+    if Action.ACTION_SET.value == action:
+        # FIXME: lift this when adequate auth is added to the requests
+        raise fastapi.HTTPException(
+            status_code=500,
+            detail=f"[handle_task_info] Can not invoke action={action} via url request",
+        )
+        return await task_info_set(payload, redis)
 
     raise fastapi.HTTPException(
         status_code=500,
-        detail=f"[handle_code_review] Unhandled action={action}",
+        detail=f"[handle_task_info] Unhandled action={action}",
     )
 
 

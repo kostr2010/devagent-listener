@@ -5,12 +5,15 @@ import shutil
 import json
 import subprocess
 import tempfile
-import redis.asyncio
+import hashlib
 import asyncio
 import sqlalchemy.ext.asyncio
-import hashlib
 
+from app.api.v1.devagent.tasks.task_info.actions.set import task_info_set
+from app.config import CONFIG
+from app.redis.redis import init_async_redis_conn
 from app.remote.get_diff import get_diff
+from app.postgres.models import Error
 
 DEVAGENT_ROOT = "/devagent"
 DEVAGENT_RULES_REPO = "arkcompiler_development_rules"
@@ -114,43 +117,46 @@ def prepare_tasks(wd: str, rules: dict, diffs: list) -> list:
     return tasks
 
 
-def store_task_info_to_redis(
-    task_id: str, wd: str, tasks: list, redis: redis.asyncio.Redis
-) -> None:
-    task_info = []
+def store_task_info_to_redis(task_id: str, wd: str, tasks: list) -> None:
+    task_info = {}
 
-    rev_arkcompiler_development_rules = _get_arkcompiler_development_rules_revision(wd)
-    key_rev_arkcompiler_development_rules = (
-        _redis_key_rev_arkcompiler_development_rules(task_id)
+    task_info.update(
+        {
+            "rev_arkcompiler_development_rules": _get_arkcompiler_development_rules_revision(
+                wd
+            )
+        }
     )
-    task_info.append(
-        (key_rev_arkcompiler_development_rules, rev_arkcompiler_development_rules)
-    )
-
-    rev_devagent = _get_devagent_revision()
-    key_rev_devagent = _redis_key_rev_devagent(task_id)
-    task_info.append((key_rev_devagent, rev_devagent))
+    task_info.update({"rev_devagent": _get_devagent_revision()})
 
     unique_patches = set()
 
     for task in tasks:
         _, patch_path, rule_path = task
-        unique_patches.update(patch_path)
+        unique_patches.add(patch_path)
         rule_name = os.path.basename(rule_path)
-        key_rule = _redis_key_rule(task_id, rule_name)
         patch_name = os.path.basename(patch_path)
-        key_patch = _redis_key_patch(task_id, patch_name)
-        task_info.append((key_rule, key_patch))
+        task_info.update({rule_name: patch_name})
 
     for patch in unique_patches:
-        content = open(patch).read()
+        patch_content = open(patch).read()
         patch_name = os.path.basename(patch_path)
-        key_patch = _redis_key_patch(task_id, patch_name)
-        task_info.append((key_patch, content))
+        task_info.update({patch_name: patch_content})
 
-    for item in task_info:
-        k, v = item
-        redis.setex(k, TASK_INFO_EXPIRY, v)
+    payload = json.dumps({task_id: task_info})
+
+    conn = init_async_redis_conn(CONFIG.REDIS_LISTENER_DB)
+
+    res = asyncio.get_event_loop().run_until_complete(
+        task_info_set(payload=payload, redis=conn)
+    )
+
+    values_written = res.get(task_id)
+
+    assert values_written != None
+    assert values_written == 1
+
+    asyncio.get_event_loop().run_until_complete(conn.close())
 
 
 def devagent_review_patch(repo_root: str, patch_path: str, rule_path: str) -> dict:
@@ -172,14 +178,25 @@ def devagent_review_patch(repo_root: str, patch_path: str, rule_path: str) -> di
         if len(stderr) > 0 and "Error" in stderr:
             return {
                 "repo": os.path.basename(repo_root),
-                "error": {"message": stderr, "patch": patch_path, "rule": rule_path},
+                "error": {
+                    "message": stderr,
+                    "patch": os.path.basename(patch_path),
+                    "rule": os.path.basename(rule_path),
+                },
             }
 
         stdout = devagent_result.stdout.decode("utf-8")
 
-        return {"repo": os.path.basename(repo_root), "result": stdout}
+        return {"repo": os.path.basename(repo_root), "result": json.loads(stdout)}
     except Exception as e:
-        return {"repo": os.path.basename(repo_root), "error": f"{str(e)}"}
+        return {
+            "repo": os.path.basename(repo_root),
+            "error": {
+                "message": f"{str(e)}",
+                "patch": os.path.basename(patch_path),
+                "rule": os.path.basename(rule_path),
+            },
+        }
 
 
 def worker_get_range(n_tasks: int, group_idx: int, group_size: int) -> tuple[int, int]:
@@ -206,8 +223,42 @@ def worker_get_range(n_tasks: int, group_idx: int, group_size: int) -> tuple[int
 
 
 def store_errors_to_postgres(
-    wd: str, devgent_review: list, postgres: sqlalchemy.ext.asyncio.AsyncSession
+    task_id: str,
+    wd: str,
+    processed_review: dict,
 ) -> None:
+    errors: dict = processed_review.get("errors", {})
+
+    if len(errors.items()) == 0:
+        return
+
+    orm_errors: list[Error] = []
+
+    for _, errors in errors.items():
+        for error in errors:
+            rev_arkcompiler_development_rules = (
+                _get_arkcompiler_development_rules_revision(wd)
+            )
+            rev_devagent = _get_devagent_revision()
+            patch_name = error["patch"]
+            patch = _postgres_patch_name(task_id, patch_name)
+            rule = error["rule"]
+            message = error["message"]
+
+            # FIXME: check if patch exists in pg, take from redis otherwise and store in pg
+
+            orm_error: Error = Error(
+                rev_arkcompiler_development_rules=rev_arkcompiler_development_rules,
+                rev_devagent=rev_devagent,
+                patch=patch,
+                rule=rule,
+                message=message,
+            )
+
+            orm_errors.append(orm_error)
+
+    # FIXME: push orm_errors
+
     pass
 
 
@@ -232,7 +283,7 @@ def process_review_result(devagent_review: list) -> dict:
             res.append(error)
             errors.update({repo: res})
         elif "result" in review:
-            violations = json.loads(review["result"])["violations"]
+            violations = review["result"]["violations"]
             res = results.get(repo, [])
             res.append(violations)
             results.update({repo: res})
@@ -259,26 +310,6 @@ def process_review_result(devagent_review: list) -> dict:
 ###########
 
 
-def _redis_key_rev_arkcompiler_development_rules(task_id: str) -> str:
-    return _redis_key(task_id, "rev_arkcompiler_development_rules")
-
-
-def _redis_key_rev_devagent(task_id: str) -> str:
-    return _redis_key(task_id, "rev_devagent")
-
-
-def _redis_key_rule(task_id: str, rule_name: str) -> str:
-    return _redis_key(task_id, rule_name)
-
-
-def _redis_key_patch(task_id: str, patch_name: str) -> str:
-    return _redis_key(task_id, patch_name)
-
-
-def _redis_key(task_id: str, key: str) -> str:
-    return f"{task_id}:{key}"
-
-
 def _get_devagent_revision() -> str:
     return _get_repo_revision(DEVAGENT_ROOT)
 
@@ -299,7 +330,7 @@ def _get_repo_revision(root: str) -> str:
     assert res.returncode == 0
     stdout = res.stdout.decode("utf-8")
 
-    return stdout
+    return stdout.strip()
 
 
 def _combine_diffs_by_rules(
@@ -340,6 +371,10 @@ def _combine_diffs_by_rules(
         combined_diffs[diff_repo_root] = repo_combined_diffs
 
     return combined_diffs
+
+
+def _postgres_patch_name(task_id: str, patch_name: str) -> str:
+    return f"{task_id}:{patch_name}"
 
 
 def _emit_diff(wd: str, diff: str) -> str:
