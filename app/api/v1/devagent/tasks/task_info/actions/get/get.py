@@ -2,7 +2,7 @@ import fastapi
 import redis.asyncio
 
 
-async def task_info_get(payload: str | None, redis: redis.asyncio.Redis) -> dict:
+async def task_info_get(redis: redis.asyncio.Redis, payload: str | None) -> dict:
     _validate_payload(payload)
 
     res = await redis.hgetall(payload)

@@ -2,8 +2,8 @@ import fastapi
 import enum
 import redis.asyncio
 
-from .actions.get import task_info_get
-from .actions.set import task_info_set
+from .actions.get.get import task_info_get
+from .actions.set.set import task_info_set
 
 
 class Action(enum.IntEnum):
@@ -33,15 +33,15 @@ async def handle_task_info(
     _validate_action(action)
 
     if Action.ACTION_GET.value == action:
-        return await task_info_get(payload, redis)
+        return await task_info_get(redis, payload)
 
     if Action.ACTION_SET.value == action:
-        # FIXME: lift this when adequate auth is added to the requests
+        # TODO: lift this when adequate auth is added to the requests
         raise fastapi.HTTPException(
             status_code=500,
             detail=f"[handle_task_info] Can not invoke action={action} via url request",
         )
-        return await task_info_set(payload, redis)
+        return await task_info_set(redis, payload)
 
     raise fastapi.HTTPException(
         status_code=500,

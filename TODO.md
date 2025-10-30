@@ -1,4 +1,4 @@
 - [ ] Add secret key validation for the requests
 - [ ] speed up workdir initialization
 - [ ] TESTS
-- [ ] correctly process revoked and failed tasks in GET actions
+- [ ] unified response typings

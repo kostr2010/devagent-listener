@@ -3,8 +3,8 @@ import enum
 import sqlalchemy.ext.asyncio
 import redis.asyncio
 
-from .actions.run import handle_code_review_run
-from .actions.get import handle_code_review_get
+from .actions.run.run import handle_code_review_run
+from .actions.get.get import handle_code_review_get
 
 
 class Action(enum.IntEnum):

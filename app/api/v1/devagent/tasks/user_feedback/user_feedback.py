@@ -3,7 +3,7 @@ import fastapi
 import redis.asyncio
 import sqlalchemy.ext.asyncio
 
-from .actions.set import user_feedback_set
+from .actions.set.set import user_feedback_set
 
 
 class Action(enum.IntEnum):

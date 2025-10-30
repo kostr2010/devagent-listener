@@ -20,6 +20,8 @@ class ListenerConfig(pydantic_settings.BaseSettings):
     POSTGRES_DB: str
     POSTGRES_HOST: str
     POSTGRES_HOSTNAME: str
+    EXPIRY_TASK_INFO: int
+    EXPIRY_DEVAGENT_WORKER: int
 
     class Config:
         env_file = "./.env"

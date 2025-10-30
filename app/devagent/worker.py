@@ -89,13 +89,13 @@ def devagent_prepare_tasks(self, wd: str, urls: list):
 
     tasks = None
     try:
-        tasks = prepare_tasks(wd, rules, diffs)
+        tasks = prepare_tasks(task_id, wd, rules, diffs)
     except Exception as e:
         msg = f"{log_tag} prepare_tasks(wd={wd},rules={rules},diffs={diffs}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
         raise Exception(msg)
     else:
-        print(f"{log_tag} prepared tasks {tasks}")
+        print(f"{log_tag} prepared {len(tasks)} tasks {tasks}")
 
     try:
         store_task_info_to_redis(task_id=task_id, wd=wd, tasks=tasks)
@@ -103,8 +103,6 @@ def devagent_prepare_tasks(self, wd: str, urls: list):
         msg = f"{log_tag} store_task_info_to_redis(task_id={task_id},wd={wd},tasks={tasks}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
         raise Exception(msg)
-    else:
-        print(f"{log_tag} prepared {len(tasks)} tasks {tasks}")
 
     return tasks
 

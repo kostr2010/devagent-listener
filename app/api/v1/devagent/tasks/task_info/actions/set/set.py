@@ -4,6 +4,7 @@ import redis.asyncio
 import json
 import jsonschema
 
+from app.config import CONFIG
 
 PAYLOAD_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -33,7 +34,7 @@ PAYLOAD_SCHEMA = {
                     "description": "Rule name mapped to the patch name",
                     "type": "string",
                 },
-                # FIXME: expand when new rules are added
+                # TODO: expand when new rules are added
             },
             "required": ["rev_arkcompiler_development_rules", "rev_devagent"],
             "additionalProperties": False,
@@ -43,17 +44,16 @@ PAYLOAD_SCHEMA = {
 }
 
 
-TASK_INFO_EXPIRY = 12 * 60 * 60  # 12 hours
-
-
-async def task_info_set(payload: str | None, redis: redis.asyncio.Redis) -> dict:
+async def task_info_set(redis: redis.asyncio.Redis, payload: str | None) -> dict:
     _validate_payload(payload)
 
     info = json.loads(payload)
 
     res = {}
     for task, info in info.items():
-        vals_written = await redis.hsetex(name=task, mapping=info, ex=TASK_INFO_EXPIRY)
+        vals_written = await redis.hsetex(
+            name=task, mapping=info, ex=CONFIG.EXPIRY_TASK_INFO
+        )
         res.update({task: vals_written})
 
     return res

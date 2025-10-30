@@ -17,7 +17,11 @@ class Patch(SQL_BASE):
     __tablename__ = "patches"
 
     id = sqlalchemy.Column(
-        sqlalchemy.Integer, primary_key=True, nullable=False, unique=True
+        sqlalchemy.String,
+        primary_key=True,
+        nullable=False,
+        unique=True,
+        autoincrement=False,
     )
     content = sqlalchemy.Column(sqlalchemy.String, nullable=False)
 
@@ -35,8 +39,8 @@ class UserFeedback(SQL_BASE):
     patch = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
     rule = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     file = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-    line = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-    feedback = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
+    line = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
+    feedback = sqlalchemy.Column(sqlalchemy.Boolean, nullable=False)
 
     @sqlalchemy.orm.validates("feedback")
     def validate_feedback(self, key, value):

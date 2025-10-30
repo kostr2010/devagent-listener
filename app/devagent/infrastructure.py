@@ -7,13 +7,15 @@ import subprocess
 import tempfile
 import hashlib
 import asyncio
-import sqlalchemy.ext.asyncio
 
-from app.api.v1.devagent.tasks.task_info.actions.set import task_info_set
+from app.api.v1.devagent.tasks.task_info.actions.set.set import task_info_set
+from app.api.v1.devagent.tasks.task_info.actions.get.get import task_info_get
 from app.config import CONFIG
 from app.redis.redis import init_async_redis_conn
 from app.remote.get_diff import get_diff
 from app.postgres.models import Error
+from app.postgres.infrastructure import save_patch_if_does_not_exist
+from app.postgres.database import SQL_SESSION
 
 DEVAGENT_ROOT = "/devagent"
 DEVAGENT_RULES_REPO = "arkcompiler_development_rules"
@@ -21,8 +23,6 @@ DEVAGENT_REVIEW_RULES_DIR = "REVIEW_RULES"
 DEVAGENT_REVIEW_RULES_CONFIG = ".REVIEW_RULES"
 
 PATCHES_DIR = ".patches.d"
-
-TASK_INFO_EXPIRY = 24 * 60 * 60
 
 
 def populate_workdir(wd: str) -> None:
@@ -95,7 +95,7 @@ def load_rules(wd: str) -> dict:
     return normalized_rules
 
 
-def prepare_tasks(wd: str, rules: dict, diffs: list) -> list:
+def prepare_tasks(task_id: str, wd: str, rules: dict, diffs: list) -> list:
     combined_diffs = _combine_diffs_by_rules(wd, rules, diffs)
 
     tasks = []
@@ -110,7 +110,7 @@ def prepare_tasks(wd: str, rules: dict, diffs: list) -> list:
             if existing_patch:
                 patch = existing_patch
             else:
-                patch = _emit_diff(wd, diff)
+                patch = _emit_diff(task_id, wd, diff)
                 emitted_diffs.update({diff_hash: patch})
             tasks.append((repo_root, patch, rule))
 
@@ -134,13 +134,13 @@ def store_task_info_to_redis(task_id: str, wd: str, tasks: list) -> None:
     for task in tasks:
         _, patch_path, rule_path = task
         unique_patches.add(patch_path)
-        rule_name = os.path.basename(rule_path)
+        rule_name = os.path.splitext(os.path.basename(rule_path))[0]
         patch_name = os.path.basename(patch_path)
         task_info.update({rule_name: patch_name})
 
     for patch in unique_patches:
         patch_content = open(patch).read()
-        patch_name = os.path.basename(patch_path)
+        patch_name = os.path.basename(patch)
         task_info.update({patch_name: patch_content})
 
     payload = json.dumps({task_id: task_info})
@@ -232,34 +232,9 @@ def store_errors_to_postgres(
     if len(errors.items()) == 0:
         return
 
-    orm_errors: list[Error] = []
-
-    for _, errors in errors.items():
-        for error in errors:
-            rev_arkcompiler_development_rules = (
-                _get_arkcompiler_development_rules_revision(wd)
-            )
-            rev_devagent = _get_devagent_revision()
-            patch_name = error["patch"]
-            patch = _postgres_patch_name(task_id, patch_name)
-            rule = error["rule"]
-            message = error["message"]
-
-            # FIXME: check if patch exists in pg, take from redis otherwise and store in pg
-
-            orm_error: Error = Error(
-                rev_arkcompiler_development_rules=rev_arkcompiler_development_rules,
-                rev_devagent=rev_devagent,
-                patch=patch,
-                rule=rule,
-                message=message,
-            )
-
-            orm_errors.append(orm_error)
-
-    # FIXME: push orm_errors
-
-    pass
+    asyncio.get_event_loop().run_until_complete(
+        _store_errors_to_postgres(task_id, wd, errors)
+    )
 
 
 def clean_workdir(wd: str) -> None:
@@ -373,14 +348,11 @@ def _combine_diffs_by_rules(
     return combined_diffs
 
 
-def _postgres_patch_name(task_id: str, patch_name: str) -> str:
-    return f"{task_id}:{patch_name}"
-
-
-def _emit_diff(wd: str, diff: str) -> str:
-    # FIXME: remove this. generate temp patch file while devagent can't parse input as string
+def _emit_diff(task_id: str, wd: str, diff: str) -> str:
     dir = os.path.abspath(os.path.join(wd, PATCHES_DIR))
-    temp = tempfile.NamedTemporaryFile(suffix=".patch", dir=dir, delete=False)
+    temp = tempfile.NamedTemporaryFile(
+        prefix=f"{task_id}-", suffix=".patch", dir=dir, delete=False
+    )
     temp.write(diff.encode("utf-8"))
     patch_path = temp.name
     temp.close()
@@ -450,3 +422,45 @@ def _normalize_rules(wd: str, rules_repo_root: str, rules: dict):
         review_rules.update({dir_abs: sorted(rules_abs)})
 
     return review_rules
+
+
+async def _store_errors_to_postgres(
+    task_id: str,
+    wd: str,
+    errors: dict,
+) -> None:
+    rev_arkcompiler_development_rules = _get_arkcompiler_development_rules_revision(wd)
+    rev_devagent = _get_devagent_revision()
+
+    conn = init_async_redis_conn(CONFIG.REDIS_LISTENER_DB)
+    task_info = await task_info_get(payload=task_id, redis=conn)
+    await conn.close()
+
+    if task_info == None or len(task_info.keys()) == 0:
+        print(f"No task info for task_id {task_id}")
+        return
+
+    async with SQL_SESSION() as postgres:
+        orm_errors: list[Error] = []
+
+        for _, errors in errors.items():
+            for error in errors:
+                patch = error["patch"]
+                rule = error["rule"]
+                message = error["message"]
+                content = task_info[patch]
+
+                await save_patch_if_does_not_exist(postgres, patch, content)
+
+                orm_error: Error = Error(
+                    rev_arkcompiler_development_rules=rev_arkcompiler_development_rules,
+                    rev_devagent=rev_devagent,
+                    patch=patch,
+                    rule=rule,
+                    message=message,
+                )
+
+                orm_errors.append(orm_error)
+
+        postgres.add_all(orm_errors)
+        await postgres.commit()
