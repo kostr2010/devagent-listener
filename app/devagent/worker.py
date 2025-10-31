@@ -166,14 +166,13 @@ def devagent_review_wrapup(
         _update_state_failed(self, e, msg)
         raise Exception(msg)
 
+    rules = None
     try:
-        clean_workdir(wd)
+        rules = load_rules(wd)
     except Exception as e:
-        msg = f"{log_tag} clean_workdir(wd={wd}) failed with exception: {str(e)}"
+        msg = f"{log_tag} load_rules(wd={wd}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
         raise Exception(msg)
-    else:
-        print(f"{log_tag} cleaned workdir {wd}")
 
     res = None
     try:
@@ -193,6 +192,15 @@ def devagent_review_wrapup(
         raise Exception(msg)
     else:
         print(f"{log_tag} uploaded patches to redis {wd}")
+
+    try:
+        clean_workdir(wd)
+    except Exception as e:
+        msg = f"{log_tag} clean_workdir(wd={wd}) failed with exception: {str(e)}"
+        _update_state_failed(self, e, msg)
+        raise Exception(msg)
+    else:
+        print(f"{log_tag} cleaned workdir {wd}")
 
     return res
 

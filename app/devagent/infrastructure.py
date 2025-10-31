@@ -95,15 +95,17 @@ def load_rules(wd: str) -> dict:
     return normalized_rules
 
 
-def prepare_tasks(task_id: str, wd: str, rules: dict, diffs: list) -> list:
-    combined_diffs = _combine_diffs_by_rules(wd, rules, diffs)
+def prepare_tasks(
+    task_id: str, wd: str, rules: dict, diffs: list[dict]
+) -> list[tuple[str, str, str]]:
+    rules_to_diffs = _match_rules_to_diffs(wd, rules, diffs)
 
     tasks = []
 
     emitted_diffs = {}
 
-    for repo_root, repo_combined_diffs in combined_diffs.items():
-        for rule, diff in repo_combined_diffs.items():
+    for repo_root, repo_rules_to_diffs in rules_to_diffs.items():
+        for rule, diff in repo_rules_to_diffs.items():
             diff_hash = hashlib.sha256(diff.encode()).hexdigest()
             existing_patch = emitted_diffs.get(diff_hash, None)
             patch = None
@@ -163,16 +165,15 @@ def devagent_review_patch(repo_root: str, patch_path: str, rule_path: str) -> di
     try:
         devagent_result = None
 
-        with tempfile.TemporaryDirectory(dir=repo_root) as cwd:
-            cmd = ["devagent", "review", "--json", "--rule", rule_path, patch_path]
+        cmd = ["devagent", "review", "--json", "--rule", rule_path, patch_path]
 
-            print(f"Started devagent:\ncwd={cwd}\ncmd={' '.join(cmd)}")
+        print(f"Started devagent:\ncwd={repo_root}\ncmd={' '.join(cmd)}")
 
-            devagent_result = subprocess.run(
-                cmd,
-                capture_output=True,
-                cwd=cwd,
-            )
+        devagent_result = subprocess.run(
+            cmd,
+            capture_output=True,
+            cwd=repo_root,
+        )
 
         stderr = devagent_result.stderr.decode("utf-8")
         if len(stderr) > 0 and "Error" in stderr:
@@ -241,7 +242,7 @@ def clean_workdir(wd: str) -> None:
     shutil.rmtree(wd, ignore_errors=True)
 
 
-def process_review_result(devagent_review: list) -> dict:
+def process_review_result(rules: dict, devagent_review: list) -> dict:
     results = {}
     errors = {}
 
@@ -265,12 +266,14 @@ def process_review_result(devagent_review: list) -> dict:
         else:
             continue
 
-    results_filtered = {
+    flattened_results = {
         repo: [
             violation for violation_list in violations for violation in violation_list
         ]
         for repo, violations in results.items()
     }
+
+    # FIXME: filter results by rules
 
     final_result = {
         "errors": errors,
@@ -308,7 +311,7 @@ def _get_repo_revision(root: str) -> str:
     return stdout.strip()
 
 
-def _combine_diffs_by_rules(
+def _match_rules_to_diffs(
     wd: str,
     rules: dict,
     diffs: list,
@@ -319,20 +322,22 @@ def _combine_diffs_by_rules(
         diff_repo = diff["repo"]
         diff_files = diff["files"]
 
-        repo_combined_diffs = {}
-
         diff_repo_root = os.path.abspath(os.path.join(wd, diff_repo))
 
+        repo_combined_diffs = {}
+
         for diff_file in diff_files:
-            diff_file_path = diff_file["file"]
-            diff_file_abspath = os.path.abspath(
-                os.path.join(diff_repo_root, diff_file_path)
-            )
+            # diff_file_path = diff_file["file"]
+            # diff_file_abspath = os.path.abspath(
+            #     os.path.join(diff_repo_root, diff_file_path)
+            # )
 
             applicable_rules = set()
 
             for rule_dir, review_rules in rules.items():
-                if rule_dir == os.path.commonpath([rule_dir, diff_file_abspath]):
+                # NOTE: old matching algorithm -- minimal patch for each rule
+                # if rule_dir == os.path.commonpath([rule_dir, diff_file_abspath]):
+                if diff_repo_root == os.path.commonpath([diff_repo_root, rule_dir]):
                     applicable_rules.update(review_rules)
 
             if len(applicable_rules) == 0:
