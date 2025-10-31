@@ -1,10 +1,13 @@
 import fastapi
 import enum
-import sqlalchemy.ext.asyncio
-import redis.asyncio
 
-from .actions.run.run import handle_code_review_run
-from .actions.get.get import handle_code_review_get
+from .actions.run import code_review_run
+from .actions.get import code_review_get
+
+
+QUERY_PARAMS_SCHEMA = {}
+
+RESPONSE_SCHEMA = {}
 
 
 class Action(enum.IntEnum):
@@ -12,12 +15,12 @@ class Action(enum.IntEnum):
     ACTION_RUN = 1
 
 
-def handle_code_review(action: int, payload: str | None) -> dict:
+def handle_code_review(action: int, query_params: dict) -> dict:
     """Work with the code review of the devagent for given PRs
 
     Args:
         action (int): Action required by the endpoint. Can be one of the `Action` enum
-        payload (str | None): Payload for the endpoint. Interpreted differently depending on the action
+        query_params (dict): Payload for the endpoint. Interpreted differently depending on the action
 
     Raises:
         fastapi.HTTPException: in case of internal server errors
@@ -29,10 +32,10 @@ def handle_code_review(action: int, payload: str | None) -> dict:
     _validate_action(action)
 
     if Action.ACTION_GET.value == action:
-        return handle_code_review_get(payload)
+        return code_review_get(query_params=query_params)
 
     if Action.ACTION_RUN.value == action:
-        return handle_code_review_run(payload)
+        return code_review_run(query_params=query_params)
 
     raise fastapi.HTTPException(
         status_code=500,

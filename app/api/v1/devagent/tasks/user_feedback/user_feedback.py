@@ -3,7 +3,7 @@ import fastapi
 import redis.asyncio
 import sqlalchemy.ext.asyncio
 
-from .actions.set.set import user_feedback_set
+from .actions.set import user_feedback_set
 
 
 class Action(enum.IntEnum):
@@ -14,7 +14,7 @@ async def handle_user_feedback(
     postgres: sqlalchemy.ext.asyncio.AsyncSession,
     redis: redis.asyncio.Redis,
     action: int,
-    payload: str | None,
+    query_params: dict,
 ) -> dict:
     """Receive user feedback for the devagent alarm and record it in persistent storage
 
@@ -22,7 +22,7 @@ async def handle_user_feedback(
         postgres (sqlalchemy.ext.asyncio.AsyncSession): Postgres connection for persistent storage
         redis (redis.asyncio.Redis): Redis connection to take task metadata from
         action (int): Action required by the endpoint. Can be one of the `Action` enum
-        payload (str | None): Payload for the endpoint. Interpreted differently depending on the action
+        query_params (dict): Payload for the endpoint. Interpreted differently depending on the action
 
     Raises:
         fastapi.HTTPException: in case of internal server errors
@@ -33,8 +33,10 @@ async def handle_user_feedback(
 
     _validate_action(action)
 
-    if Action.ACTION_GET.value == action:
-        return await user_feedback_set(postgres=postgres, redis=redis, payload=payload)
+    if Action.ACTION_SET.value == action:
+        return await user_feedback_set(
+            postgres=postgres, redis=redis, query_params=query_params
+        )
 
     raise fastapi.HTTPException(
         status_code=500,

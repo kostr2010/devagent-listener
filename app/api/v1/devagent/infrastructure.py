@@ -1,42 +1,87 @@
 import fastapi
-import json
 import jsonschema
+import functools
+import asyncio
 
-PAYLOAD_SCHEMA_JSON = "payload.schema.json"
-RESPONSE_SCHEMA_JSON = "response.schema.json"
+
+def validate_response(schema: dict):
+    """Decorator for the response validation
+
+    Args:
+        schema (dict): schema used to validate response of the endpoint
+    """
+
+    def decorator(func):
+        if asyncio.iscoroutinefunction(func):
+
+            @functools.wraps(func)
+            async def wrapper(*args, **kwargs):
+                result = await func(*args, **kwargs)
+                try:
+                    jsonschema.validate(result, schema)
+                except Exception as e:
+                    raise fastapi.HTTPException(
+                        status_code=500,
+                        detail=f"Error while validating response : {str(e)}",
+                    )
+                return result
+
+        else:
+
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                result = func(*args, **kwargs)
+                try:
+                    jsonschema.validate(result, schema)
+                except Exception as e:
+                    raise fastapi.HTTPException(
+                        status_code=500,
+                        detail=f"Error while validating response : {str(e)}",
+                    )
+                return result
+
+        return wrapper
+
+    return decorator
 
 
-def validate_payload(payload: str | None, allow_empty_payload: bool = False) -> None:
-    if payload == None:
-        if allow_empty_payload:
-            return
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f"Expected non-empty value for payload",
-        )
+def validate_query_params(schema: dict):
+    """Decorator for the query_params validation
 
-    payload_schema = None
-    try:
-        file = open(PAYLOAD_SCHEMA_JSON)
-        content = file.read()
-        file.close()
-        payload_schema = json.loads(content)
-    except Exception as e:
-        raise fastapi.HTTPException(
-            status_code=500, detail=f"Error while reading payload schema : {str(e)}"
-        )
+    Args:
+        schema (dict): schema used to validate query params of the endpoint
 
-    parsed_payload = None
-    try:
-        parsed_payload = json.loads(payload)
-    except Exception as e:
-        raise fastapi.HTTPException(
-            status_code=400, detail=f"Error while parsing payload : {str(e)}"
-        )
+    Note:
+        For this decorator to work correctly, query_params argument MUST be passed as kwarg
+    """
 
-    try:
-        jsonschema.validate(parsed_payload, payload_schema)
-    except Exception as e:
-        raise fastapi.HTTPException(
-            status_code=400, detail=f"Error while validating payload : {str(e)}"
-        )
+    def decorator(func):
+        if asyncio.iscoroutinefunction(func):
+
+            @functools.wraps(func)
+            async def wrapper(*args, **kwargs):
+                try:
+                    jsonschema.validate(kwargs["query_params"], schema)
+                except Exception as e:
+                    raise fastapi.HTTPException(
+                        status_code=500,
+                        detail=f"Error while validating query_params : {str(e)}",
+                    )
+                return await func(*args, **kwargs)
+
+        else:
+
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                try:
+                    jsonschema.validate(kwargs["query_params"], schema)
+                except Exception as e:
+                    raise fastapi.HTTPException(
+                        status_code=500,
+                        detail=f"Error while validating query_params : {str(e)}",
+                    )
+                return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator

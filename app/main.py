@@ -3,7 +3,7 @@ import contextlib
 import redis.asyncio
 import alembic.config
 import sqlalchemy.ext.asyncio
-
+import typing
 
 from .postgres.database import SQL_SESSION, SQL_ENGINE
 from .redis.redis import init_async_redis_conn
@@ -53,21 +53,28 @@ def health_endpoint():
     return {"status": "healthy"}
 
 
-import asyncio
-
-
 @listener.get("/api/v1/devagent")
 async def devagent_endpoint(
     response: fastapi.Response,
     request: fastapi.Request,
-    # query parameter declaration
-    task_kind: int,
-    action: int,
-    payload: str | None = None,
-    # connections
+    task_kind: typing.Annotated[int, fastapi.Query()],
+    action: typing.Annotated[int, fastapi.Query()],
     postgres: sqlalchemy.ext.asyncio.AsyncSession = fastapi.Depends(get_postgres),
     redis: redis.asyncio.Redis = fastapi.Depends(get_redis),
-):
+) -> dict:
+    """Entrypoint for the devagent related logic
+
+    Args:
+        response (fastapi.Response): response
+        request (fastapi.Request): request
+        task_kind (typing.Annotated[int, fastapi.Query): task that needs to be performed by the endpoint
+        action (typing.Annotated[int, fastapi.Query): action that needs to be performed for the task
+        postgres (sqlalchemy.ext.asyncio.AsyncSession, optional): postgres connection. Defaults to fastapi.Depends(get_postgres).
+        redis (redis.asyncio.Redis, optional): redis connection. Defaults to fastapi.Depends(get_redis).
+
+    Returns:
+        dict: response. depends on the task_kind and action provided
+    """
     # TODO: add secret key validation
 
     return await api_v1_devagent_endpoint(
@@ -77,5 +84,4 @@ async def devagent_endpoint(
         redis=redis,
         task_kind=task_kind,
         action=action,
-        payload=payload,
     )

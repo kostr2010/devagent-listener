@@ -1,7 +1,5 @@
 import celery
 import tempfile
-import redis.asyncio
-import sqlalchemy.ext.asyncio
 
 from app.celery.celery import celery_instance
 from app.config import CONFIG

@@ -22,23 +22,24 @@ async def api_v1_devagent_endpoint(
     redis: redis.asyncio.Redis,
     task_kind: int,
     action: int,
-    payload: str | None,
 ) -> dict:
     _validate_task_kind(task_kind)
 
-    if task_kind == TaskKind.TASK_KIND_CODE_REVIEW.value:
-        return handle_code_review(action=action, payload=payload)
+    if TaskKind.TASK_KIND_CODE_REVIEW.value == task_kind:
+        return handle_code_review(action=action, query_params=request.query_params)
 
-    if task_kind == TaskKind.TASK_KIND_USER_FEEDBACK.value:
+    if TaskKind.TASK_KIND_USER_FEEDBACK.value == task_kind:
         return await handle_user_feedback(
             postgres=postgres,
             redis=redis,
             action=action,
-            payload=payload,
+            query_params=request.query_params,
         )
 
-    if task_kind == TaskKind.TASK_KIND_TASK_INFO.value:
-        return await handle_task_info(redis=redis, action=action, payload=payload)
+    if TaskKind.TASK_KIND_TASK_INFO.value == task_kind:
+        return await handle_task_info(
+            redis=redis, action=action, query_params=request.query_params
+        )
 
     raise fastapi.HTTPException(
         status_code=500,

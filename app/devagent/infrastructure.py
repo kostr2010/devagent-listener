@@ -8,8 +8,8 @@ import tempfile
 import hashlib
 import asyncio
 
-from app.api.v1.devagent.tasks.task_info.actions.set.set import task_info_set
-from app.api.v1.devagent.tasks.task_info.actions.get.get import task_info_get
+from app.api.v1.devagent.tasks.task_info.actions.set import task_info_set
+from app.api.v1.devagent.tasks.task_info.actions.get import task_info_get
 from app.config import CONFIG
 from app.redis.redis import init_async_redis_conn
 from app.remote.get_diff import get_diff
@@ -143,12 +143,12 @@ def store_task_info_to_redis(task_id: str, wd: str, tasks: list) -> None:
         patch_name = os.path.basename(patch)
         task_info.update({patch_name: patch_content})
 
-    payload = json.dumps({task_id: task_info})
+    task_info.update({"task_id": task_id})
 
     conn = init_async_redis_conn(CONFIG.REDIS_LISTENER_DB)
 
     res = asyncio.get_event_loop().run_until_complete(
-        task_info_set(payload=payload, redis=conn)
+        task_info_set(redis=conn, query_params=task_info)
     )
 
     values_written = res.get(task_id)
@@ -351,7 +351,7 @@ def _combine_diffs_by_rules(
 def _emit_diff(task_id: str, wd: str, diff: str) -> str:
     dir = os.path.abspath(os.path.join(wd, PATCHES_DIR))
     temp = tempfile.NamedTemporaryFile(
-        prefix=f"{task_id}-", suffix=".patch", dir=dir, delete=False
+        prefix=f"{task_id}-", suffix="-patch", dir=dir, delete=False
     )
     temp.write(diff.encode("utf-8"))
     patch_path = temp.name
