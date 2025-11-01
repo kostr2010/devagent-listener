@@ -1,6 +1,7 @@
 import redis.asyncio
 
-from app.api.v1.devagent.infrastructure import validate_query_params, validate_response
+from app.utils.validation import validate_result
+from app.api.v1.devagent.infrastructure import validate_query_params
 
 QUERY_PARAMS_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -31,6 +32,14 @@ RESPONSE_SCHEMA = {
             "description": "Revision of the arkcompiler_development_rules repository used for review",
             "type": "string",
         },
+        "rev_arkcompiler_runtime_core": {
+            "description": "Revision of the arkcompiler_runtime_core repository used for review",
+            "type": "string",
+        },
+        "rev_arkcompiler_ets_frontend": {
+            "description": "Revision of the arkcompiler_ets_frontend repository used for review",
+            "type": "string",
+        },
         "rev_devagent": {
             "description": "Revision of the devagent repository used for review",
             "type": "string",
@@ -52,8 +61,8 @@ RESPONSE_SCHEMA = {
 }
 
 
+@validate_result(RESPONSE_SCHEMA)
 @validate_query_params(QUERY_PARAMS_SCHEMA)
-@validate_response(RESPONSE_SCHEMA)
 async def task_info_get(redis: redis.asyncio.Redis, query_params: dict) -> dict:
     try:
         task_id = query_params["task_id"]

@@ -2,7 +2,9 @@ import fastapi
 import validators
 
 from app.devagent.worker import create_devagent_review_workflow
-from app.api.v1.devagent.infrastructure import validate_query_params, validate_response
+from app.utils.validation import validate_result
+from app.api.v1.devagent.infrastructure import validate_query_params
+
 
 QUERY_PARAMS_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -43,8 +45,8 @@ RESPONSE_SCHEMA = {
 }
 
 
+@validate_result(RESPONSE_SCHEMA)
 @validate_query_params(QUERY_PARAMS_SCHEMA)
-@validate_response(RESPONSE_SCHEMA)
 def code_review_run(
     query_params: dict,
 ) -> dict:

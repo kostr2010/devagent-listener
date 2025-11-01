@@ -1,6 +1,6 @@
 import unittest
 
-from app.devagent.infrastructure import worker_get_range
+from app.devagent.infrastructure.prepare_tasks import worker_get_range
 
 
 class GetWorkerRangeTest(unittest.TestCase):

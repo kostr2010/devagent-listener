@@ -45,7 +45,7 @@ async def handle_task_info(
     if Action.ACTION_SET.value == action:
         # TODO: lift this when adequate auth is added to the requests
         raise fastapi.HTTPException(
-            status_code=500,
+            status_code=400,
             detail=f"[handle_task_info] Can not invoke action={action} via url request",
         )
         return await task_info_set(redis=redis, query_params=query_params)

@@ -5,7 +5,8 @@ import zlib
 
 from app.postgres.models import UserFeedback
 from app.postgres.infrastructure import save_patch_if_does_not_exist
-from app.api.v1.devagent.infrastructure import validate_query_params, validate_response
+from app.utils.validation import validate_result
+from app.api.v1.devagent.infrastructure import validate_query_params
 from app.api.v1.devagent.tasks.task_info.actions.get import task_info_get
 
 QUERY_PARAMS_SCHEMA = {
@@ -51,7 +52,7 @@ RESPONSE_SCHEMA = {
 }
 
 
-@validate_response(RESPONSE_SCHEMA)
+@validate_result(RESPONSE_SCHEMA)
 @validate_query_params(QUERY_PARAMS_SCHEMA)
 async def user_feedback_set(
     postgres: sqlalchemy.ext.asyncio.AsyncSession,
@@ -70,6 +71,8 @@ async def user_feedback_set(
         rev_arkcompiler_development_rules = task_info[
             "rev_arkcompiler_development_rules"
         ]
+        rev_arkcompiler_runtime_core = task_info["rev_arkcompiler_runtime_core"]
+        rev_arkcompiler_ets_frontend = task_info["rev_arkcompiler_ets_frontend"]
         rev_devagent = task_info["rev_devagent"]
         patch = task_info[rule]
         content = task_info[patch]
@@ -78,6 +81,8 @@ async def user_feedback_set(
 
         orm_feedback = UserFeedback(
             rev_arkcompiler_development_rules=rev_arkcompiler_development_rules,
+            rev_arkcompiler_runtime_core=rev_arkcompiler_runtime_core,
+            rev_arkcompiler_ets_frontend=rev_arkcompiler_ets_frontend,
             rev_devagent=rev_devagent,
             patch=patch,
             rule=rule,

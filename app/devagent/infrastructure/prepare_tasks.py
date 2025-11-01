@@ -1,0 +1,289 @@
+import os.path
+import shutil
+import hashlib
+import asyncio
+import tempfile
+
+from app.api.v1.devagent.tasks.task_info.actions.set import task_info_set
+from app.config import CONFIG
+from app.redis.redis import init_async_redis_conn
+from app.remote.get_diff import get_diff
+from app.utils.validation import validate_result
+from app.utils.git import get_revision, clone
+from app.utils.path import abspath_join
+from ._ext_deps import (
+    DEVAGENT_REPO_ROOT,
+    ARKCOMPILER_DEVELOPMENT_RULES_REPO,
+    ARKCOMPILER_ETS_FRONTEND_REPO,
+    ARKCOMPILER_RUNTIME_CORE_REPO,
+)
+
+
+def populate_workdir(wd: str) -> None:
+    DEVAGENT_CONFIG_PATH = "/.devagent.toml"
+    assert os.path.exists(DEVAGENT_CONFIG_PATH)
+
+    for repo, owner, branch in [
+        ARKCOMPILER_DEVELOPMENT_RULES_REPO,
+        ARKCOMPILER_ETS_FRONTEND_REPO,
+        ARKCOMPILER_RUNTIME_CORE_REPO,
+    ]:
+        dir = abspath_join(wd, repo)
+        url = f"https://gitcode.com/{owner}/{repo}.git"
+
+        clone(url, branch, dir)
+
+        local_devagent_config_path = os.path.abspath(
+            os.path.join(dir, ".devagent.toml")
+        )
+        shutil.copyfile(DEVAGENT_CONFIG_PATH, local_devagent_config_path)
+
+        assert os.path.exists(local_devagent_config_path)
+
+
+def get_diffs(urls: list[str]) -> list[dict]:
+    return [get_diff(url) for url in urls]
+
+
+@validate_result(
+    {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "load_rules return value shema",
+        "description": "Return value schema of load_rules API",
+        "type": "object",
+        "patternProperties": {
+            # TODO: fix when new rules are added or patch format changes
+            "^ETS.*$": {
+                "description": "Rule name mapped to the patch name",
+                "type": "array",
+                "items": {"type": "string"},
+            },
+        },
+        "additionalProperties": False,
+    }
+)
+def load_rules(wd: str) -> dict:
+    repo, _, _ = ARKCOMPILER_DEVELOPMENT_RULES_REPO
+    repo_root = abspath_join(wd, repo)
+
+    review_rules = _load_rules_from_repo_root(repo_root)
+
+    normalized_rules = _normalize_rules(wd, repo_root, review_rules)
+
+    for dir, rules in normalized_rules.items():
+        assert os.path.exists(dir)
+        for rule in rules:
+            assert os.path.exists(rule)
+
+    return normalized_rules
+
+
+def prepare_tasks(
+    task_id: str, wd: str, rules: dict, diffs: list[dict]
+) -> list[tuple[str, str, str]]:
+    rules_to_diffs = _match_rules_to_diffs(wd, rules, diffs)
+
+    tasks = []
+
+    emitted_diffs = {}
+
+    for repo_root, repo_rules_to_diffs in rules_to_diffs.items():
+        for rule, diff in repo_rules_to_diffs.items():
+            diff_hash = _diff_hash(diff)
+            existing_patch = emitted_diffs.get(diff_hash, None)
+            patch = None
+            if existing_patch:
+                patch = existing_patch
+            else:
+                patch = _emit_patch(task_id, wd, diff)
+                emitted_diffs.update({diff_hash: patch})
+            tasks.append((repo_root, patch, rule))
+
+    return tasks
+
+
+def store_task_info_to_redis(task_id: str, wd: str, tasks: list) -> None:
+    task_info = {}
+
+    arkcompiler_development_rules, _, _ = ARKCOMPILER_DEVELOPMENT_RULES_REPO
+    task_info.update(
+        {
+            "rev_arkcompiler_development_rules": get_revision(
+                abspath_join(wd, arkcompiler_development_rules)
+            )
+        }
+    )
+    arkcompiler_runtime_core, _, _ = ARKCOMPILER_RUNTIME_CORE_REPO
+    task_info.update(
+        {
+            "rev_arkcompiler_runtime_core": get_revision(
+                abspath_join(wd, arkcompiler_runtime_core)
+            )
+        }
+    )
+    arkcompiler_ets_frontend, _, _ = ARKCOMPILER_ETS_FRONTEND_REPO
+    task_info.update(
+        {
+            "rev_arkcompiler_ets_frontend": get_revision(
+                abspath_join(wd, arkcompiler_ets_frontend)
+            )
+        }
+    )
+    task_info.update({"rev_devagent": get_revision(DEVAGENT_REPO_ROOT)})
+
+    unique_patches = set()
+
+    for task in tasks:
+        _, patch_path, rule_path = task
+        unique_patches.add(patch_path)
+        rule_name = os.path.splitext(os.path.basename(rule_path))[0]
+        patch_name = os.path.basename(patch_path)
+        task_info.update({rule_name: patch_name})
+
+    for patch in unique_patches:
+        patch_content = open(patch).read()
+        patch_name = os.path.basename(patch)
+        task_info.update({patch_name: patch_content})
+
+    task_info.update({"task_id": task_id})
+
+    conn = init_async_redis_conn(CONFIG.REDIS_LISTENER_DB)
+
+    res = asyncio.get_event_loop().run_until_complete(
+        task_info_set(redis=conn, query_params=task_info)
+    )
+
+    values_written = res.get(task_id)
+
+    assert values_written != None
+    assert values_written == 1
+
+    asyncio.get_event_loop().run_until_complete(conn.close())
+
+
+###########
+# private #
+###########
+
+
+def _diff_hash(diff: str) -> str:
+    return hashlib.sha256(diff.encode()).hexdigest()
+
+
+def _match_rules_to_diffs(
+    wd: str,
+    rules: dict,
+    diffs: list,
+) -> dict:
+    combined_diffs = {}
+
+    for diff in diffs:
+        diff_repo = diff["repo"]
+        diff_files = diff["files"]
+
+        diff_repo_root = abspath_join(wd, diff_repo)
+
+        repo_combined_diffs = {}
+
+        for diff_file in diff_files:
+            # diff_file_path = diff_file["file"]
+            # diff_file_abspath = os.path.abspath(
+            #     os.path.join(diff_repo_root, diff_file_path)
+            # )
+
+            applicable_rules = set()
+
+            for rule_dir, review_rules in rules.items():
+                # NOTE: old matching algorithm -- minimal patch for each rule
+                # if rule_dir == os.path.commonpath([rule_dir, diff_file_abspath]):
+                if diff_repo_root == os.path.commonpath([diff_repo_root, rule_dir]):
+                    applicable_rules.update(review_rules)
+
+            if len(applicable_rules) == 0:
+                continue
+
+            for rule in applicable_rules:
+                rule_combined_diff = repo_combined_diffs.get(rule, "")
+                rule_combined_diff += diff_file["diff"] + "\n\n"
+                repo_combined_diffs[rule] = rule_combined_diff
+
+        combined_diffs[diff_repo_root] = repo_combined_diffs
+
+    return combined_diffs
+
+
+def _emit_patch(task_id: str, wd: str, diff: str) -> str:
+    patches_dir = abspath_join(wd, ".patches.d")
+    os.makedirs(patches_dir, exist_ok=True)
+    assert os.path.exists(patches_dir)
+
+    temp = tempfile.NamedTemporaryFile(
+        prefix=f"{task_id}-", suffix="-patch", dir=patches_dir, delete=False
+    )
+    temp.write(diff.encode("utf-8"))
+    patch_path = temp.name
+    temp.close()
+
+    assert os.path.exists(patch_path)
+
+    return patch_path
+
+
+def _load_rules_from_config(cfg: str) -> dict:
+    lines = cfg.split("\n")
+
+    review_rules = {}
+
+    for raw_line in lines:
+        line = raw_line.strip()
+
+        if line.startswith("#"):
+            continue
+
+        parsed_line = line.split()
+
+        if len(parsed_line) < 2:
+            continue
+
+        dir = parsed_line[0].removeprefix("/").removesuffix("/")
+        rules = parsed_line[1:]
+        existing_rules = set(review_rules.get(dir, []))
+        existing_rules.update(rules)
+        review_rules.update({dir: existing_rules})
+    return review_rules
+
+
+def _load_rules_from_repo_root(repo_root: str) -> dict:
+    review_rules = {}
+
+    rules_config = abspath_join(repo_root, ".REVIEW_RULES")
+    if not os.path.exists(rules_config):
+        print(f"No {rules_config} file was found in the repo root {repo_root}")
+        return review_rules
+
+    with open(rules_config) as cfg:
+        content = cfg.read()
+        review_rules = _load_rules_from_config(content)
+
+    return review_rules
+
+
+def _normalize_rules(wd: str, rules_repo_root: str, rules: dict):
+    review_rules = {}
+
+    rules_dir = os.path.abspath(os.path.join(rules_repo_root, "REVIEW_RULES"))
+    if not os.path.exists(rules_dir):
+        print(f"No {rules_dir} dir was found in the repo root {rules_repo_root}")
+        return review_rules
+
+    for dir, rules in rules.items():
+        dir_abs = abspath_join(wd, dir)
+        rules_abs = list(
+            map(
+                lambda rule: abspath_join(rules_dir, rule),
+                rules,
+            )
+        )
+        review_rules.update({dir_abs: sorted(rules_abs)})
+
+    return review_rules

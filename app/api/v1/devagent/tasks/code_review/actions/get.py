@@ -2,7 +2,8 @@ import fastapi
 import enum
 
 from app.devagent.worker import devagent_worker
-from app.api.v1.devagent.infrastructure import validate_query_params, validate_response
+from app.utils.validation import validate_result
+from app.api.v1.devagent.infrastructure import validate_query_params
 
 QUERY_PARAMS_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -138,8 +139,8 @@ class TaskStatus(enum.IntEnum):
     TASK_STATUS_PENDING = 4  # Task execution is pending
 
 
+@validate_result(RESPONSE_SCHEMA)
 @validate_query_params(QUERY_PARAMS_SCHEMA)
-@validate_response(RESPONSE_SCHEMA)
 def code_review_get(
     query_params: dict,
 ):

@@ -4,15 +4,15 @@ import tempfile
 from app.celery.celery import celery_instance
 from app.config import CONFIG
 
-from .infrastructure import (
+from .infrastructure.prepare_tasks import (
     populate_workdir,
     get_diffs,
     load_rules,
     prepare_tasks,
     store_task_info_to_redis,
 )
-from .infrastructure import devagent_review_patch, worker_get_range
-from .infrastructure import (
+from .infrastructure.review_patches import devagent_review_patch, worker_get_range
+from .infrastructure.wrapup import (
     store_errors_to_postgres,
     clean_workdir,
     process_review_result,
@@ -39,24 +39,24 @@ def create_devagent_review_workflow(urls: list):
     wd = tempfile.mkdtemp()
 
     return celery.chain(
-        devagent_prepare_tasks.s(wd, urls),
+        prepare_tasks.s(wd, urls),
         celery.group(
-            devagent_review_patches.s(i, DEVAGENT_REVIEW_GROUP_SIZE)
+            review_patches.s(i, DEVAGENT_REVIEW_GROUP_SIZE)
             for i in range(DEVAGENT_REVIEW_GROUP_SIZE)
         ),
-        devagent_review_wrapup.s(wd),
+        wrapup.s(wd),
     )
 
 
 @devagent_worker.task(bind=True, track_started=True)
-def devagent_prepare_tasks(self, wd: str, urls: list):
+def prepare_tasks(self, wd: str, urls: list):
     log_tag = None
     task_id = None
     try:
         log_tag = _devagent_prepare_tasks_log_tag(self)
         task_id = _devagent_prepare_tasks_task_id(self)
     except Exception as e:
-        msg = f"{log_tag} devagent_prepare_tasks init failed with exception: {str(e)}"
+        msg = f"{log_tag} prepare_tasks init failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
         raise Exception(msg)
 
@@ -106,14 +106,12 @@ def devagent_prepare_tasks(self, wd: str, urls: list):
 
 
 @devagent_worker.task(bind=True, track_started=True)
-def devagent_review_patches(
-    self, arg_packs: list, group_idx: int, group_size: int
-) -> list:
+def review_patches(self, arg_packs: list, group_idx: int, group_size: int) -> list:
     log_tag = None
     try:
         log_tag = _devagent_review_patches_log_tag(self)
     except Exception as e:
-        msg = f"{log_tag} devagent_review_patches init failed with exception: {str(e)}"
+        msg = f"{log_tag} review_patches init failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
         raise Exception(msg)
 
@@ -151,7 +149,7 @@ def devagent_review_patches(
 
 
 @devagent_worker.task(bind=True, track_started=True)
-def devagent_review_wrapup(
+def wrapup(
     self,
     devagent_review: list,
     wd: str,
@@ -162,7 +160,7 @@ def devagent_review_wrapup(
         log_tag = _devagent_review_wrapup_log_tag(self)
         task_id = _devagent_review_wrapup_task_id(self)
     except Exception as e:
-        msg = f"{log_tag} devagent_review_wrapup init failed with exception: {str(e)}"
+        msg = f"{log_tag} wrapup init failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
         raise Exception(msg)
 
@@ -176,7 +174,7 @@ def devagent_review_wrapup(
 
     res = None
     try:
-        res = process_review_result(devagent_review)
+        res = process_review_result(rules, devagent_review)
     except Exception as e:
         msg = f"{log_tag} process_review_result(devagent_review={devagent_review}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)

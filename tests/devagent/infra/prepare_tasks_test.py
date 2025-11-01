@@ -1,10 +1,10 @@
 import unittest
 
-from app.devagent.infrastructure import prepare_tasks
+from app.devagent.infrastructure.prepare_tasks import prepare_tasks
 
 
 class PrepareTasksTest(unittest.TestCase):
-    def ditto():
+    def test():
         # FIXME: implement
         pass
 

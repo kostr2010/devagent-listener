@@ -35,8 +35,10 @@ class UserFeedback(SQL_BASE):
     rev_arkcompiler_development_rules = sqlalchemy.Column(
         sqlalchemy.String, nullable=False
     )
+    rev_arkcompiler_runtime_core = sqlalchemy.Column(sqlalchemy.String, nullable=False)
+    rev_arkcompiler_ets_frontend = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     rev_devagent = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-    patch = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
+    patch = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     rule = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     file = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     line = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
@@ -58,7 +60,9 @@ class Error(SQL_BASE):
     rev_arkcompiler_development_rules = sqlalchemy.Column(
         sqlalchemy.String, nullable=False
     )
+    rev_arkcompiler_runtime_core = sqlalchemy.Column(sqlalchemy.String, nullable=False)
+    rev_arkcompiler_ets_frontend = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     rev_devagent = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-    patch = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
+    patch = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     rule = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     message = sqlalchemy.Column(sqlalchemy.String, nullable=False)
