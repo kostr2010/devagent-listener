@@ -1,4 +1,5 @@
 import fastapi
+import celery.exceptions
 import enum
 
 from app.devagent.worker import devagent_worker
@@ -46,6 +47,7 @@ RESPONSE_SCHEMA = {
             "description": "Result of the task",
             "oneOf": [
                 {"type": "null"},
+                {"type": "string"},
                 {
                     "type": "object",
                     "properties": {
@@ -94,9 +96,6 @@ RESPONSE_SCHEMA = {
                                             "severity": {
                                                 "type": "string",
                                             },
-                                            "rule": {
-                                                "type": "string",
-                                            },
                                             "message": {
                                                 "type": "string",
                                             },
@@ -109,7 +108,6 @@ RESPONSE_SCHEMA = {
                                             "line",
                                             "rule",
                                             "severity",
-                                            "rule",
                                             "message",
                                             "code_snippet",
                                         ],
@@ -132,10 +130,8 @@ RESPONSE_SCHEMA = {
 
 
 class TaskStatus(enum.IntEnum):
-    TASK_STATUS_IN_PROGRESS = 0  # Task is in progress
     TASK_STATUS_DONE = 1  # Task completed successfully
     TASK_STATUS_ERROR = 2  # Task completed abnormally
-    TASK_STATUS_ABORTED = 3  # Task execution was aborted
     TASK_STATUS_PENDING = 4  # Task execution is pending
 
 
@@ -144,35 +140,33 @@ class TaskStatus(enum.IntEnum):
 def code_review_get(
     query_params: dict,
 ):
-    try:
-        payload = query_params["task_id"]
+    # try:
+    payload = query_params["payload"]
 
-        task = devagent_worker.AsyncResult(payload)
+    task = devagent_worker.AsyncResult(payload)
 
-        task_status = None
-
-        if "SUCCESS" == task.state:
-            task_status = (TaskStatus.TASK_STATUS_DONE.value,)
-        elif "FAILURE" == task.state:
-            task_status = TaskStatus.TASK_STATUS_ERROR.value
-        elif "PENDING" == task.state:
-            task_status = TaskStatus.TASK_STATUS_PENDING.value
-        elif "STARTED" == task.state:
-            task_status = TaskStatus.TASK_STATUS_IN_PROGRESS.value
-        else:
-            raise fastapi.HTTPException(
-                status_code=500,
-                detail=f"Unexpected task state: payload={payload}, task.state={task.state}",
-            )
-    except Exception as e:
-        return {
-            "successfull": False,
-            "message": f"[code_review_get] Exception occured during handling payload {payload}: {str(e)}",
-        }
-    else:
-        return {
-            "successfull": True,
-            "task_id": task.id,
-            "task_status": task_status,
-            "task_result": task.result,
-        }
+    task_status = 1
+    task_result = ""
+    # try:
+    task_result = task.get()
+    # except Exception as e:
+    #     task_result = "hui"
+    # try:
+    #     task_status = TaskStatus.TASK_STATUS_DONE.value
+    #     # FIXME: come up with something better than that
+    # except Exception as e:
+    #     task_status = TaskStatus.TASK_STATUS_ERROR.value
+    #     task_result = str(e)
+    # except Exception as e:
+    #     return {
+    #         "successfull": False,
+    #         "message": f"[code_review_get] Exception occured during handling payload {query_params['payload']}: {str(e)}",
+    #     }
+    # else:
+    print(f"redult {task.build_graph(intermediate=True)}")
+    return {
+        "successfull": True,
+        "task_id": task.id,
+        "task_status": task_status,
+        "task_result": task_result,
+    }

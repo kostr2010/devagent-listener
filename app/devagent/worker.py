@@ -1,4 +1,7 @@
 import celery
+import celery.states
+import celery.exceptions
+import traceback
 import tempfile
 
 from app.celery.celery import celery_instance
@@ -52,20 +55,31 @@ def create_devagent_review_workflow(urls: list):
 def prepare_tasks(self, wd: str, urls: list):
     log_tag = None
     task_id = None
+
+    raise Exception
+
     try:
         log_tag = _devagent_prepare_tasks_log_tag(self)
         task_id = _devagent_prepare_tasks_task_id(self)
     except Exception as e:
         msg = f"{log_tag} prepare_tasks init failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(msg)
+
+    diffs = None
+    try:
+        diffs = get_diffs(urls)
+    except Exception as e:
+        msg = f"{log_tag} get_diffs(urls={urls}) failed with exception: {str(e)}"
+        _update_state_failed(self, e, msg)
+        raise celery.exceptions.TaskError(msg)
 
     try:
-        populate_workdir(wd)
+        populate_workdir(wd, diffs)
     except Exception as e:
         msg = f"{log_tag} populate_workdir(wd={wd}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(msg)
     else:
         print(f"{log_tag} populated workdir {wd}")
 
@@ -75,15 +89,7 @@ def prepare_tasks(self, wd: str, urls: list):
     except Exception as e:
         msg = f"{log_tag} load_rules(wd={wd}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
-        raise Exception(msg)
-
-    diffs = None
-    try:
-        diffs = get_diffs(urls)
-    except Exception as e:
-        msg = f"{log_tag} get_diffs(urls={urls}) failed with exception: {str(e)}"
-        _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(msg)
 
     tasks = None
     try:
@@ -91,7 +97,7 @@ def prepare_tasks(self, wd: str, urls: list):
     except Exception as e:
         msg = f"{log_tag} prepare_tasks(wd={wd},rules={rules},diffs={diffs}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(msg)
     else:
         print(f"{log_tag} prepared {len(tasks)} tasks {tasks}")
 
@@ -100,7 +106,7 @@ def prepare_tasks(self, wd: str, urls: list):
     except Exception as e:
         msg = f"{log_tag} store_task_info_to_redis(task_id={task_id},wd={wd},tasks={tasks}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(msg)
 
     return tasks
 
@@ -113,7 +119,7 @@ def review_patches(self, arg_packs: list, group_idx: int, group_size: int) -> li
     except Exception as e:
         msg = f"{log_tag} review_patches init failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(msg)
 
     start_idx = None
     end_idx = None
@@ -122,7 +128,7 @@ def review_patches(self, arg_packs: list, group_idx: int, group_size: int) -> li
     except Exception as e:
         msg = f"{log_tag} worker_get_range(n_tasks={len(arg_packs)},group_idx={group_idx}, group_size={group_size}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(msg)
     else:
         print(
             f"{log_tag} received tasks {[arg_packs[i] for i in range(start_idx, end_idx)]}"
@@ -141,7 +147,7 @@ def review_patches(self, arg_packs: list, group_idx: int, group_size: int) -> li
         except Exception as e:
             msg = f"{log_tag} devagent_review_patch(repo_root={repo_root},patch_path={patch_path}, rule_path={rule_path}) failed with exception: {str(e)}"
             _update_state_failed(self, e, msg)
-            raise Exception(msg)
+            raise celery.exceptions.TaskError(msg)
 
         results.append(patch_review_result)
 
@@ -162,7 +168,7 @@ def wrapup(
     except Exception as e:
         msg = f"{log_tag} wrapup init failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(msg)
 
     rules = None
     try:
@@ -170,7 +176,7 @@ def wrapup(
     except Exception as e:
         msg = f"{log_tag} load_rules(wd={wd}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(msg)
 
     res = None
     try:
@@ -178,7 +184,7 @@ def wrapup(
     except Exception as e:
         msg = f"{log_tag} process_review_result(devagent_review={devagent_review}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(msg)
     else:
         print(f"{log_tag} processed review result {res}")
 
@@ -187,7 +193,7 @@ def wrapup(
     except Exception as e:
         msg = f"{log_tag} store_task_info_to_redis(task_id={task_id},wd={wd},devagent_review={devagent_review}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(msg)
     else:
         print(f"{log_tag} uploaded patches to redis {wd}")
 
@@ -196,7 +202,7 @@ def wrapup(
     except Exception as e:
         msg = f"{log_tag} clean_workdir(wd={wd}) failed with exception: {str(e)}"
         _update_state_failed(self, e, msg)
-        raise Exception(msg)
+        raise celery.exceptions.TaskError(msg)
     else:
         print(f"{log_tag} cleaned workdir {wd}")
 
@@ -236,5 +242,10 @@ def _devagent_review_wrapup_log_tag(self) -> str:
 
 def _update_state_failed(self, exc: Exception, msg: str) -> None:
     self.update_state(
-        state="FAILURE", meta={"exc_type": type(exc).__name__, "exc_message": msg}
+        state=celery.states.FAILURE,
+        meta={
+            "exc_type": type(exc).__name__,
+            "exc_message": traceback.format_exc().split("\n"),
+            "custom": msg,
+        },
     )

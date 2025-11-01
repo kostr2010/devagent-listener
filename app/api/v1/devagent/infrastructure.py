@@ -20,10 +20,10 @@ def validate_query_params(schema: dict):
             @functools.wraps(func)
             async def wrapper(*args, **kwargs):
                 try:
-                    jsonschema.validate(kwargs["query_params"], schema)
+                    jsonschema.validate(dict(kwargs["query_params"]), schema)
                 except Exception as e:
                     raise fastapi.HTTPException(
-                        status_code=500,
+                        status_code=400,
                         detail=f"Error while validating query_params : {str(e)}",
                     )
                 return await func(*args, **kwargs)
@@ -33,10 +33,10 @@ def validate_query_params(schema: dict):
             @functools.wraps(func)
             def wrapper(*args, **kwargs):
                 try:
-                    jsonschema.validate(kwargs["query_params"], schema)
+                    jsonschema.validate(dict(kwargs["query_params"]), schema)
                 except Exception as e:
                     raise fastapi.HTTPException(
-                        status_code=500,
+                        status_code=400,
                         detail=f"Error while validating query_params : {str(e)}",
                     )
                 return func(*args, **kwargs)

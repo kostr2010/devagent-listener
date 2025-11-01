@@ -18,14 +18,6 @@ QUERY_PARAMS_SCHEMA = {
             "description": "Revision of the arkcompiler_development_rules repository used for review",
             "type": "string",
         },
-        "rev_arkcompiler_runtime_core": {
-            "description": "Revision of the arkcompiler_runtime_core repository used for review",
-            "type": "string",
-        },
-        "rev_arkcompiler_ets_frontend": {
-            "description": "Revision of the arkcompiler_ets_frontend repository used for review",
-            "type": "string",
-        },
         "rev_devagent": {
             "description": "Revision of the devagent repository used for review",
             "type": "string",
@@ -41,8 +33,16 @@ QUERY_PARAMS_SCHEMA = {
             "description": "Rule name mapped to the patch name",
             "type": "string",
         },
+        "^rev_.*$": {
+            "description": "Repo name mapped to it's revision",
+            "type": "string",
+        },
     },
-    "required": ["task_id", "rev_arkcompiler_development_rules", "rev_devagent"],
+    "required": [
+        "task_id",
+        "rev_arkcompiler_development_rules",
+        "rev_devagent",
+    ],
     "additionalProperties": True,
 }
 
@@ -95,7 +95,7 @@ async def task_info_set(
     except Exception as e:
         return {
             "successfull": False,
-            "message": f"[task_info_set] Exception occured during handling of task {task_id}: {str(e)}",
+            "message": f"[task_info_set] Exception occured during handling of task {query_params['task_id']}: {str(e)}",
         }
     else:
         return {

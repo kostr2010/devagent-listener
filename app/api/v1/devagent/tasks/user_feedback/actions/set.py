@@ -60,7 +60,6 @@ async def user_feedback_set(
     query_params: dict,
 ) -> dict:
     try:
-        task_id: str = query_params["task_id"]
         feedback: bool = query_params["feedback"]
         data: str = query_params["data"]
 
@@ -96,7 +95,7 @@ async def user_feedback_set(
     except Exception as e:
         return {
             "successfull": False,
-            "message": f"[user_feedback_set] Exception occured during handling of task {task_id}: {str(e)}",
+            "message": f"[user_feedback_set] Exception occured during handling of task {query_params['task_id']}: {str(e)}",
         }
     else:
         return {

@@ -6,13 +6,6 @@ from .actions.get import task_info_get
 from .actions.set import task_info_set
 
 
-from app.api.v1.devagent.infrastructure import validate_query_params, validate_response
-
-QUERY_PARAMS_SCHEMA = {}
-
-RESPONSE_SCHEMA = {}
-
-
 class Action(enum.IntEnum):
     ACTION_GET = 0
     ACTION_SET = 1

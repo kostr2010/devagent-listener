@@ -9,14 +9,7 @@ from app.postgres.models import Error
 from app.postgres.infrastructure import save_patch_if_does_not_exist
 from app.postgres.database import SQL_SESSION
 from app.utils.validation import validate_result
-from app.utils.git import get_revision
 from app.utils.path import abspath_join
-from ._ext_deps import (
-    DEVAGENT_REPO_ROOT,
-    ARKCOMPILER_DEVELOPMENT_RULES_REPO,
-    ARKCOMPILER_ETS_FRONTEND_REPO,
-    ARKCOMPILER_RUNTIME_CORE_REPO,
-)
 
 
 def store_errors_to_postgres(
@@ -177,23 +170,6 @@ async def _store_errors_to_postgres(
     wd: str,
     errors: dict,
 ) -> None:
-    arkcompiler_development_rules, _, _ = ARKCOMPILER_DEVELOPMENT_RULES_REPO
-    rev_arkcompiler_development_rules = get_revision(
-        abspath_join(wd, arkcompiler_development_rules)
-    )
-
-    arkcompiler_runtime_core, _, _ = ARKCOMPILER_RUNTIME_CORE_REPO
-    rev_arkcompiler_runtime_core = get_revision(
-        abspath_join(wd, arkcompiler_runtime_core)
-    )
-
-    arkcompiler_ets_frontend, _, _ = ARKCOMPILER_ETS_FRONTEND_REPO
-    rev_arkcompiler_ets_frontend = get_revision(
-        abspath_join(wd, arkcompiler_ets_frontend)
-    )
-
-    rev_devagent = get_revision(DEVAGENT_REPO_ROOT)
-
     conn = init_async_redis_conn(CONFIG.REDIS_LISTENER_DB)
     task_info = await task_info_get(payload=task_id, redis=conn)
     await conn.close()
@@ -202,10 +178,14 @@ async def _store_errors_to_postgres(
         print(f"No task info for task_id {task_id}")
         return
 
+    rev_arkcompiler_development_rules = task_info["rev_arkcompiler_development_rules"]
+    rev_devagent = task_info["rev_devagent"]
+
     async with SQL_SESSION() as postgres:
         orm_errors: list[Error] = []
 
-        for _, errors in errors.items():
+        for repo, errors in errors.items():
+            rev = task_info[f"rev_{repo}"]
             for error in errors:
                 patch = error["patch"]
                 rule = error["rule"]
@@ -216,9 +196,9 @@ async def _store_errors_to_postgres(
 
                 orm_error: Error = Error(
                     rev_arkcompiler_development_rules=rev_arkcompiler_development_rules,
-                    rev_arkcompiler_runtime_core=rev_arkcompiler_runtime_core,
-                    rev_arkcompiler_ets_frontend=rev_arkcompiler_ets_frontend,
                     rev_devagent=rev_devagent,
+                    repo=repo,
+                    rev=rev,
                     patch=patch,
                     rule=rule,
                     message=message,

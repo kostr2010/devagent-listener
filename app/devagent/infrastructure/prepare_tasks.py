@@ -3,42 +3,48 @@ import shutil
 import hashlib
 import asyncio
 import tempfile
+import subprocess
+import git
+import time
+
 
 from app.api.v1.devagent.tasks.task_info.actions.set import task_info_set
 from app.config import CONFIG
 from app.redis.redis import init_async_redis_conn
 from app.remote.get_diff import get_diff
 from app.utils.validation import validate_result
-from app.utils.git import get_revision, clone
 from app.utils.path import abspath_join
-from ._ext_deps import (
-    DEVAGENT_REPO_ROOT,
-    ARKCOMPILER_DEVELOPMENT_RULES_REPO,
-    ARKCOMPILER_ETS_FRONTEND_REPO,
-    ARKCOMPILER_RUNTIME_CORE_REPO,
+
+ARKCOMPILER_DEVELOPMENT_RULES_REPO = (
+    "arkcompiler_development_rules",
+    "nazarovkonstantin",
+    "main",
 )
 
 
-def populate_workdir(wd: str) -> None:
-    DEVAGENT_CONFIG_PATH = "/.devagent.toml"
-    assert os.path.exists(DEVAGENT_CONFIG_PATH)
+def populate_workdir(wd: str, diffs: list[dict]) -> None:
+    repo, owner, branch = ARKCOMPILER_DEVELOPMENT_RULES_REPO
+    dir = abspath_join(wd, repo)
+    url = f"https://gitcode.com/{owner}/{repo}.git"
+    repo = _clone(dir=dir, url=url)
+    repo.git.checkout(branch)
 
-    for repo, owner, branch in [
-        ARKCOMPILER_DEVELOPMENT_RULES_REPO,
-        ARKCOMPILER_ETS_FRONTEND_REPO,
-        ARKCOMPILER_RUNTIME_CORE_REPO,
-    ]:
+    for diff in diffs:
+        repo = diff["repo"]
+        owner = diff["owner"]
+        base_sha = diff["summary"]["base_sha"]
+
         dir = abspath_join(wd, repo)
         url = f"https://gitcode.com/{owner}/{repo}.git"
+        repo = _clone(dir=dir, url=url)
+        repo.git.checkout(base_sha)
 
-        clone(url, branch, dir)
+        global_devagent_config = "/.devagent.toml"
+        assert os.path.exists(global_devagent_config)
 
-        local_devagent_config_path = os.path.abspath(
-            os.path.join(dir, ".devagent.toml")
-        )
-        shutil.copyfile(DEVAGENT_CONFIG_PATH, local_devagent_config_path)
-
-        assert os.path.exists(local_devagent_config_path)
+        local_devagent_config = abspath_join(dir, ".devagent.toml")
+        shutil.copyfile(global_devagent_config, local_devagent_config)
+        assert os.path.exists(local_devagent_config)
 
 
 def get_diffs(urls: list[str]) -> list[dict]:
@@ -70,12 +76,9 @@ def load_rules(wd: str) -> dict:
 
     normalized_rules = _normalize_rules(wd, repo_root, review_rules)
 
-    for dir, rules in normalized_rules.items():
-        assert os.path.exists(dir)
-        for rule in rules:
-            assert os.path.exists(rule)
+    filtered_rules = _filter_rules(normalized_rules)
 
-    return normalized_rules
+    return filtered_rules
 
 
 def prepare_tasks(
@@ -108,33 +111,19 @@ def store_task_info_to_redis(task_id: str, wd: str, tasks: list) -> None:
     arkcompiler_development_rules, _, _ = ARKCOMPILER_DEVELOPMENT_RULES_REPO
     task_info.update(
         {
-            "rev_arkcompiler_development_rules": get_revision(
+            "rev_arkcompiler_development_rules": _get_revision(
                 abspath_join(wd, arkcompiler_development_rules)
             )
         }
     )
-    arkcompiler_runtime_core, _, _ = ARKCOMPILER_RUNTIME_CORE_REPO
-    task_info.update(
-        {
-            "rev_arkcompiler_runtime_core": get_revision(
-                abspath_join(wd, arkcompiler_runtime_core)
-            )
-        }
-    )
-    arkcompiler_ets_frontend, _, _ = ARKCOMPILER_ETS_FRONTEND_REPO
-    task_info.update(
-        {
-            "rev_arkcompiler_ets_frontend": get_revision(
-                abspath_join(wd, arkcompiler_ets_frontend)
-            )
-        }
-    )
-    task_info.update({"rev_devagent": get_revision(DEVAGENT_REPO_ROOT)})
+    task_info.update({"rev_devagent": _get_revision("/devagent")})
 
     unique_patches = set()
+    unique_repos = set()
 
     for task in tasks:
-        _, patch_path, rule_path = task
+        repo, patch_path, rule_path = task
+        unique_repos.add(repo)
         unique_patches.add(patch_path)
         rule_name = os.path.splitext(os.path.basename(rule_path))[0]
         patch_name = os.path.basename(patch_path)
@@ -144,6 +133,10 @@ def store_task_info_to_redis(task_id: str, wd: str, tasks: list) -> None:
         patch_content = open(patch).read()
         patch_name = os.path.basename(patch)
         task_info.update({patch_name: patch_content})
+
+    task_info.update(
+        {f"rev_{repo}": _get_revision(abspath_join(wd, repo)) for repo in unique_repos}
+    )
 
     task_info.update({"task_id": task_id})
 
@@ -268,10 +261,24 @@ def _load_rules_from_repo_root(repo_root: str) -> dict:
     return review_rules
 
 
+def _filter_rules(normalized_rules: dict) -> dict:
+    relevant_rules = {}
+
+    for dir, rules in normalized_rules.items():
+        if not os.path.exists(dir):
+            # e.g. rules for the other repos
+            continue
+        for rule in rules:
+            assert os.path.exists(rule)
+        relevant_rules.update({dir: rules})
+
+    return relevant_rules
+
+
 def _normalize_rules(wd: str, rules_repo_root: str, rules: dict):
     review_rules = {}
 
-    rules_dir = os.path.abspath(os.path.join(rules_repo_root, "REVIEW_RULES"))
+    rules_dir = abspath_join(rules_repo_root, "REVIEW_RULES")
     if not os.path.exists(rules_dir):
         print(f"No {rules_dir} dir was found in the repo root {rules_repo_root}")
         return review_rules
@@ -287,3 +294,43 @@ def _normalize_rules(wd: str, rules_repo_root: str, rules: dict):
         review_rules.update({dir_abs: sorted(rules_abs)})
 
     return review_rules
+
+
+def _clone(url: str, dir: str | None = None, retries: int = 5) -> git.Repo:
+    tries_left = retries
+
+    while tries_left > 0:
+        try:
+            return git.Repo.clone_from(
+                url,
+                dir,
+                allow_unsafe_protocols=True,
+                # depth=1,
+            )
+        except Exception as e:
+            if tries_left > 0:
+                tries_left -= 1
+                print(
+                    f"[tries left: {tries_left}] Repo clone failed with the exception {e}"
+                )
+                time.sleep(5 * (5 - tries_left))
+
+    return git.Repo.clone_from(
+        url,
+        dir,
+        allow_unsafe_protocols=True,
+    )
+
+
+def _get_revision(root: str) -> str:
+    cmd = ["git", "-C", root, "rev-parse", "HEAD"]
+
+    res = subprocess.run(
+        cmd,
+        capture_output=True,
+    )
+
+    assert res.returncode == 0
+    stdout = res.stdout.decode("utf-8")
+
+    return stdout.strip()

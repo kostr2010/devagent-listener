@@ -1,7 +1,7 @@
 import fastapi
 import validators
 
-from app.devagent.worker import create_devagent_review_workflow
+from app.devagent.worker import create_devagent_review_workflow, devagent_worker
 from app.utils.validation import validate_result
 from app.api.v1.devagent.infrastructure import validate_query_params
 
@@ -29,7 +29,7 @@ RESPONSE_SCHEMA = {
     "properties": {
         "task_id": {
             "description": "Id of the newly started task for this review",
-            "type": "boolean",
+            "type": "string",
         },
         "successfull": {
             "description": "Whether feedback was stored successfully",
@@ -57,13 +57,16 @@ def code_review_run(
 
         _validate_url_list(urls)
 
-        task = create_devagent_review_workflow(urls).apply_async()
+        task = create_devagent_review_workflow(urls)()
+
+        res = devagent_worker.AsyncResult(task.id)
+        res.get()
 
         print(f"started task {task.id} for payload {payload}")
     except Exception as e:
         return {
             "successfull": False,
-            "message": f"[code_review_run] Exception occured during handling payload {payload}: {str(e)}",
+            "message": f"[code_review_run] Exception occured during handling payload {query_params['payload']}: {str(e)}",
         }
     else:
         return {"successfull": True, "task_id": task.id}
@@ -96,7 +99,7 @@ def _validate_url(url: str) -> None:
             detail=f"Invalid url passed in payload: url={url}",
         )
 
-    if not ("gitcode" in url or "gitee" in url) or not "pull" in url:
+    if (not "gitcode" in url) or (not "pull" in url):
         raise fastapi.HTTPException(
             status_code=400,
             detail=f"Expected gitee / gitcode pull request url, got url={url}",

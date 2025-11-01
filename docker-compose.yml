@@ -26,7 +26,6 @@ services:
       listener_devagent_worker:
         condition: "service_healthy"
     logging:
-      driver: "json-file"
       options:
         max-size: "200m"
 
@@ -54,7 +53,6 @@ services:
     depends_on:
       - listener_redis
     logging:
-      driver: "json-file"
       options:
         max-size: "200m"
 
@@ -78,7 +76,6 @@ services:
       timeout: 5s
       retries: 5
     logging:
-      driver: "json-file"
       options:
         max-size: "200m"
 
@@ -98,7 +95,6 @@ services:
       timeout: 5s
       retries: 5
     logging:
-      driver: "json-file"
       options:
         max-size: "200m"
 

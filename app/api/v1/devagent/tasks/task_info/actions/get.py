@@ -28,16 +28,12 @@ RESPONSE_SCHEMA = {
             "description": "Whether task info was retrieved successfully",
             "type": "boolean",
         },
+        "message": {
+            "description": "Message in case of failure",
+            "type": "string",
+        },
         "rev_arkcompiler_development_rules": {
             "description": "Revision of the arkcompiler_development_rules repository used for review",
-            "type": "string",
-        },
-        "rev_arkcompiler_runtime_core": {
-            "description": "Revision of the arkcompiler_runtime_core repository used for review",
-            "type": "string",
-        },
-        "rev_arkcompiler_ets_frontend": {
-            "description": "Revision of the arkcompiler_ets_frontend repository used for review",
             "type": "string",
         },
         "rev_devagent": {
@@ -53,6 +49,10 @@ RESPONSE_SCHEMA = {
         },
         "^ETS.*$": {
             "description": "Rule name mapped to the patch name",
+            "type": "string",
+        },
+        "^rev_.*$": {
+            "description": "Repo name mapped to it's revision",
             "type": "string",
         },
     },
@@ -79,7 +79,7 @@ async def task_info_get(redis: redis.asyncio.Redis, query_params: dict) -> dict:
     except Exception as e:
         return {
             "successfull": False,
-            "message": f"[task_info_get] Exception occured during handling of task {task_id}: {str(e)}",
+            "message": f"[task_info_get] Exception occured during handling of task {query_params['task_id']}: {str(e)}",
         }
     else:
         return task_info
