@@ -1,5 +1,6 @@
 FROM python:3.11
 
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 RUN pip install pip --upgrade --timeout 300
 RUN apt update && apt upgrade -y
 RUN apt install git
