@@ -5,6 +5,8 @@ ARG DEVAGENT_PROVIDER
 ARG DEVAGENT_MODEL
 ARG DEVAGENT_API_KEY
 
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
 WORKDIR /
 
 RUN true > .devagent.toml
