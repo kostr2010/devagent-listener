@@ -1,11 +1,6 @@
-import celery
+import celery  # type: ignore
 
 from app.config import CONFIG
-
-
-class LoggingTask(celery.Task):
-    def on_failure(self, exc, task_id, args, kwargs, einfo):
-        super().on_failure(exc, task_id, args, kwargs, einfo)
 
 
 def celery_instance(worker_name: str, redis_db: int) -> celery.Celery:
@@ -19,7 +14,6 @@ def celery_instance(worker_name: str, redis_db: int) -> celery.Celery:
         worker_name,
         broker=redis_url,
         backend=redis_url,
-        task_cls="app.celery.celery:LoggingTask",
     )
 
     app.conf.task_track_started = True

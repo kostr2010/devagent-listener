@@ -1,0 +1,118 @@
+diff --git a/ets2panda/ir/expressions/memberExpression.cpp b/ets2panda/ir/expressions/memberExpression.cpp
+index edf96299b..ffaa0f164 100644
+--- a/ets2panda/ir/expressions/memberExpression.cpp
++++ b/ets2panda/ir/expressions/memberExpression.cpp
+@@ -446,6 +446,12 @@ checker::Type *MemberExpression::CheckIndexAccessMethod(checker::ETSChecker *che
+     std::string_view const methodName =
+         isSetter ? compiler::Signatures::SET_INDEX_METHOD : compiler::Signatures::GET_INDEX_METHOD;
+     auto *const method = objType_->GetProperty(methodName, searchFlag);
++    if (isSetter && objType_->IsETSReadonlyArrayType()) {
++        checker->LogError(diagnostic::READONLY_ARRAYLIKE_MODIFICATION, {},
++                          Parent()->AsAssignmentExpression()->Left()->Start());
++        return nullptr;
++    }
++
+     if (method == nullptr || !method->HasFlag(varbinder::VariableFlags::METHOD)) {
+         checker->LogError(diagnostic::NO_INDEX_ACCESS_METHOD, {}, Start());
+         return nullptr;
+diff --git a/ets2panda/test/ast/compiler/ets/readonly/readonly_assign_error_array.ets b/ets2panda/test/ast/compiler/ets/readonly/readonly_assign_error_array.ets
+new file mode 100644
+index 000000000..e06a55ac0
+--- /dev/null
++++ b/ets2panda/test/ast/compiler/ets/readonly/readonly_assign_error_array.ets
+@@ -0,0 +1,19 @@
++/*
++ * Copyright (c) 2025 Huawei Device Co., Ltd.
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++let arr: readonly number[] = [1, -0.923]
++arr[0] = 2
++
++/* @@? 17:1 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+diff --git a/ets2panda/test/ast/compiler/ets/readonly/readonly_assign_error_tuple.ets b/ets2panda/test/ast/compiler/ets/readonly/readonly_assign_error_tuple.ets
+new file mode 100644
+index 000000000..6b6839033
+--- /dev/null
++++ b/ets2panda/test/ast/compiler/ets/readonly/readonly_assign_error_tuple.ets
+@@ -0,0 +1,19 @@
++/*
++ * Copyright (c) 2025 Huawei Device Co., Ltd.
++ * Licensed under the Apache License, Version 2.0 (the "License");
++ * you may not use this file except in compliance with the License.
++ * You may obtain a copy of the License at
++ *
++ * http://www.apache.org/licenses/LICENSE-2.0
++ *
++ * Unless required by applicable law or agreed to in writing, software
++ * distributed under the License is distributed on an "AS IS" BASIS,
++ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++ * See the License for the specific language governing permissions and
++ * limitations under the License.
++ */
++
++let tuple: readonly [number, string] = [1, "hello"]
++tuple[0] = 0.987
++
++/* @@? 17:1 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+diff --git a/ets2panda/test/ast/compiler/ets/readonly_array01.ets b/ets2panda/test/ast/compiler/ets/readonly_array01.ets
+index be9a9bcc7..8227ccf65 100644
+--- a/ets2panda/test/ast/compiler/ets/readonly_array01.ets
++++ b/ets2panda/test/ast/compiler/ets/readonly_array01.ets
+@@ -19,6 +19,5 @@ function main() {
+     v[0] = []  // CTE
+ }
+ 
+-
+-/* @@? 19:5 Error Semantic error ESE0250: Object type doesn't have proper index access method. */
+-/* @@? 19:12 Error Semantic error ESE0301: Can't resolve array type */
+\ No newline at end of file
++/* @@? 19:5 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter  */
++/* @@? 19:12 Error Semantic error ESE0301: Can't resolve array type  */
+diff --git a/ets2panda/test/ast/parser/ets/readonly-parameter-test/readonly-parameter-and-Readonly-test2.ets b/ets2panda/test/ast/parser/ets/readonly-parameter-test/readonly-parameter-and-Readonly-test2.ets
+index a08267d7a..91334350f 100644
+--- a/ets2panda/test/ast/parser/ets/readonly-parameter-test/readonly-parameter-and-Readonly-test2.ets
++++ b/ets2panda/test/ast/parser/ets/readonly-parameter-test/readonly-parameter-and-Readonly-test2.ets
+@@ -35,13 +35,13 @@ let x2 : Readonly<int[]> = [0]
+ let y2 : readonly [int, string]
+ /* @@ label9 */y2[1] = "b"
+ 
+-/* @@@ label Error Semantic error ESE0250: Object type doesn't have proper index access method. */
++/* @@@ label Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+ /* @@@ label1 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+ /* @@@ label2 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+ /* @@@ label3 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+ /* @@@ label4 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+ /* @@@ label5 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+-/* @@@ label6 Error Semantic error ESE0250: Object type doesn't have proper index access method. */
++/* @@@ label6 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+ /* @@@ label7 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+ /* @@@ label8 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+-/* @@@ label9 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+\ No newline at end of file
++/* @@@ label9 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+diff --git a/ets2panda/test/ast/parser/ets/readonly-parameter-test/readonly-parameter-test6.ets b/ets2panda/test/ast/parser/ets/readonly-parameter-test/readonly-parameter-test6.ets
+index 37a1c6f07..d359f061d 100644
+--- a/ets2panda/test/ast/parser/ets/readonly-parameter-test/readonly-parameter-test6.ets
++++ b/ets2panda/test/ast/parser/ets/readonly-parameter-test/readonly-parameter-test6.ets
+@@ -27,6 +27,5 @@ let arr = foo1()
+ let tuple = foo2()
+ /* @@ label1 */tuple[1] = "c"
+ 
+-
+-/* @@@ label Error Semantic error ESE0250: Object type doesn't have proper index access method. */
+-/* @@@ label1 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+\ No newline at end of file
++/* @@@ label Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
++/* @@@ label1 Error Semantic error ESE0058: Cannot modify an array or tuple content that has the readonly parameter */
+/home/igelhaus/panda-1/arkcompiler_development_rules

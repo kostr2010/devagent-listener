@@ -1,7 +1,7 @@
 import sqlalchemy.ext.asyncio
 import sqlalchemy.future
 
-from .models import Patch
+from app.postgres.models import Patch
 
 
 async def save_patch_if_does_not_exist(

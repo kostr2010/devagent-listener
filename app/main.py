@@ -5,15 +5,22 @@ import alembic.config
 import sqlalchemy.ext.asyncio
 import typing
 
-from .postgres.database import SQL_SESSION, SQL_ENGINE
-from .redis.redis import init_async_redis_conn
-from .config import CONFIG
+from app.postgres.database import SQL_SESSION, SQL_ENGINE
+from app.redis.redis import init_async_redis_conn
+from app.config import CONFIG
 
-from .api.v1.devagent.endpoint import api_v1_devagent_endpoint
+from app.routes.api.v1.devagent.endpoint import (
+    endpoint_api_v1_devagent,
+    Response as ResponseApiV1Devagent,
+)
+from app.routes.health.endpoint import (
+    endpoint_health,
+    Response as ResponseHealth,
+)
 
 
 @contextlib.asynccontextmanager
-async def lifespan(app: fastapi.FastAPI):
+async def lifespan(app: fastapi.FastAPI):  # type: ignore
     print("Initializing redis connection")
     app.state.async_redis_conn = init_async_redis_conn(CONFIG.REDIS_LISTENER_DB)
     print("Running postgres migrations")
@@ -24,23 +31,24 @@ async def lifespan(app: fastapi.FastAPI):
     await app.state.async_redis_conn.close()
 
 
-def get_redis(request: fastapi.Request):
-    return request.app.state.async_redis_conn
+def get_redis(request: fastapi.Request) -> redis.asyncio.Redis:
+    conn: redis.asyncio.Redis = request.app.state.async_redis_conn
+    return conn
 
 
-async def get_postgres():
+async def get_postgres():  # type: ignore
     async with SQL_SESSION() as session:
         yield session
         await session.commit()
 
 
-def run_postgres_migrations(connection):
+def run_postgres_migrations(connection: sqlalchemy.Connection) -> None:
     cfg = alembic.config.Config("alembic.ini")
     cfg.attributes["connection"] = connection
     alembic.command.upgrade(cfg, "head")
 
 
-async def run_async_postgres_migrations():
+async def run_async_postgres_migrations() -> None:
     async with SQL_ENGINE.begin() as conn:
         await conn.run_sync(run_postgres_migrations)
 
@@ -49,19 +57,24 @@ listener = fastapi.FastAPI(debug=True, lifespan=lifespan)
 
 
 @listener.get("/health")
-def health_endpoint():
-    return {"status": "healthy"}
+def health() -> ResponseHealth:
+    """Basic healthcheck endpoint
+
+    Returns:
+        HealthResponse: response with the 'healthy' status
+    """
+    return endpoint_health()
 
 
 @listener.get("/api/v1/devagent")
-async def devagent_endpoint(
+async def api_v1_devagent(
     response: fastapi.Response,
     request: fastapi.Request,
     task_kind: typing.Annotated[int, fastapi.Query()],
     action: typing.Annotated[int, fastapi.Query()],
     postgres: sqlalchemy.ext.asyncio.AsyncSession = fastapi.Depends(get_postgres),
     redis: redis.asyncio.Redis = fastapi.Depends(get_redis),
-) -> dict:
+) -> ResponseApiV1Devagent:
     """Entrypoint for the devagent related logic
 
     Args:
@@ -73,11 +86,11 @@ async def devagent_endpoint(
         redis (redis.asyncio.Redis, optional): redis connection. Defaults to fastapi.Depends(get_redis).
 
     Returns:
-        dict: response. depends on the task_kind and action provided
+        ApiV1DevagentResponse: response. depends on the task_kind and action provided
     """
     # TODO: add secret key validation
 
-    return await api_v1_devagent_endpoint(
+    return await endpoint_api_v1_devagent(
         response=response,
         request=request,
         postgres=postgres,

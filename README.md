@@ -9,10 +9,24 @@
 make venv
 ```
 
-## Test
+## Testing
+
+To check code for static errors, run the following command
+
+```bash
+make mypy
+```
+
+To run unit tests, run the following command
 
 ```bash
 make test
+```
+
+Shortuct to run all checks is always the following:
+
+```bash
+make tests_full
 ```
 
 ## Run

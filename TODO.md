@@ -2,3 +2,4 @@
 - [ ] speed up workdir initialization
 - [ ] TESTS
 - [ ] unified response typings
+- [ ] replace literals with typed initializers

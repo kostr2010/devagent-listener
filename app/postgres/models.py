@@ -13,7 +13,7 @@ class Feedback(enum.IntEnum):
     FALSE_NEGATIE = 3
 
 
-class Patch(SQL_BASE):
+class Patch(SQL_BASE):  # type: ignore
     __tablename__ = "patches"
 
     id = sqlalchemy.Column(
@@ -26,7 +26,7 @@ class Patch(SQL_BASE):
     content = sqlalchemy.Column(sqlalchemy.String, nullable=False)
 
 
-class UserFeedback(SQL_BASE):
+class UserFeedback(SQL_BASE):  # type: ignore
     __tablename__ = "user_feedback"
 
     id = sqlalchemy.Column(
@@ -36,8 +36,8 @@ class UserFeedback(SQL_BASE):
         sqlalchemy.String, nullable=False
     )
     rev_devagent = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-    repo = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-    rev = sqlalchemy.Column(sqlalchemy.String, nullable=False)
+    project = sqlalchemy.Column(sqlalchemy.String, nullable=False)
+    rev_project = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     patch = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     rule = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     file = sqlalchemy.Column(sqlalchemy.String, nullable=False)
@@ -45,13 +45,13 @@ class UserFeedback(SQL_BASE):
     feedback = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
 
     @sqlalchemy.orm.validates("feedback")
-    def validate_feedback(self, key, value):
+    def validate_feedback(self, key: str, value: int) -> int:
         if not value in [e.value for e in Feedback]:
             raise ValueError(f"Invalid feedback value {value} for key {key}")
         return value
 
 
-class Error(SQL_BASE):
+class Error(SQL_BASE):  # type: ignore
     __tablename__ = "errors"
 
     id = sqlalchemy.Column(
@@ -61,8 +61,8 @@ class Error(SQL_BASE):
         sqlalchemy.String, nullable=False
     )
     rev_devagent = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-    repo = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-    rev = sqlalchemy.Column(sqlalchemy.String, nullable=False)
+    project = sqlalchemy.Column(sqlalchemy.String, nullable=False)
+    rev_project = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     patch = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     rule = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     message = sqlalchemy.Column(sqlalchemy.String, nullable=False)

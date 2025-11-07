@@ -1,18 +1,17 @@
 import unittest
 
-from app.devagent.infrastructure.review_patches import worker_get_range
+from app.devagent.impl.review_patches import worker_get_range
 
 
 class GetWorkerRangeTest(unittest.TestCase):
-
-    def test_no_tasks(self):
+    def test_no_tasks(self) -> None:
         self.assertEqual(worker_get_range(0, 0, 1), (0, 0))
         self.assertEqual(worker_get_range(0, 1, 2), (0, 0))
         self.assertEqual(worker_get_range(0, 2, 3), (0, 0))
         self.assertEqual(worker_get_range(0, 0, 1), (0, 0))
         self.assertEqual(worker_get_range(0, 0, 2), (0, 0))
 
-    def test_no_residual(self):
+    def test_no_residual(self) -> None:
         self.assertEqual(worker_get_range(10, 0, 5), (0, 2))
         self.assertEqual(worker_get_range(10, 1, 5), (2, 4))
         self.assertEqual(worker_get_range(10, 2, 5), (4, 6))
@@ -31,7 +30,7 @@ class GetWorkerRangeTest(unittest.TestCase):
         self.assertEqual(worker_get_range(10, 8, 10), (8, 9))
         self.assertEqual(worker_get_range(10, 9, 10), (9, 10))
 
-    def test_residual_workers(self):
+    def test_residual_workers(self) -> None:
         self.assertEqual(worker_get_range(10, 0, 4), (0, 3))
         self.assertEqual(worker_get_range(10, 1, 4), (3, 6))
         self.assertEqual(worker_get_range(10, 2, 4), (6, 8))
@@ -45,7 +44,7 @@ class GetWorkerRangeTest(unittest.TestCase):
         self.assertEqual(worker_get_range(10, 6, 8), (8, 9))
         self.assertEqual(worker_get_range(10, 7, 8), (9, 10))
 
-    def test_excessive_workers(self):
+    def test_excessive_workers(self) -> None:
         self.assertEqual(worker_get_range(5, 0, 7), (0, 1))
         self.assertEqual(worker_get_range(5, 1, 7), (1, 2))
         self.assertEqual(worker_get_range(5, 2, 7), (2, 3))
@@ -54,13 +53,13 @@ class GetWorkerRangeTest(unittest.TestCase):
         self.assertEqual(worker_get_range(5, 5, 7), (5, 5))
         self.assertEqual(worker_get_range(5, 6, 7), (5, 5))
 
-    def test_invalid_idx(self):
+    def test_invalid_idx(self) -> None:
         self.assertRaises(AssertionError, worker_get_range, 10, -5, 5)
         self.assertRaises(AssertionError, worker_get_range, 10, -1, 5)
         self.assertRaises(AssertionError, worker_get_range, 10, 5, 5)
         self.assertRaises(AssertionError, worker_get_range, 10, 6, 5)
 
-    def devagent_invalid_group_size(self):
+    def devagent_invalid_group_size(self) -> None:
         self.assertRaises(AssertionError, worker_get_range, 10, 6, 0)
         self.assertRaises(AssertionError, worker_get_range, 10, 6, -5)
         self.assertRaises(AssertionError, worker_get_range, 10, -7, -5)

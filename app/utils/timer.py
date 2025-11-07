@@ -2,6 +2,7 @@ import time
 import logging
 import inspect
 import enum
+import typing
 
 
 class TimerResolution(enum.Enum):
@@ -19,11 +20,11 @@ class Timer:
         self.res = res
         self.time = time.time if res is TimerResolution.SECONDS else time.time_ns
 
-        self.tic = None
-        self.toc = None
-        self.running = False
+        self.tic: float | int | None = None
+        self.toc: float | int | None = None
+        self.running: bool = False
 
-    def is_running(self):
+    def is_running(self) -> bool:
         return self.tic != None and self.toc == None
 
     def reset(self) -> None:
@@ -38,16 +39,18 @@ class Timer:
         if self.is_running():
             self.toc = toc
 
-    def measure(self):
+    def measure(self) -> float | int | None:
         if not self.tic or not self.toc:
             return None
         return self.toc - self.tic
 
-    def __enter__(self):
+    def __enter__(self):  # type: ignore
         self.reset()
         return self
 
-    def __exit__(self, exc_type, exc, traceback) -> None:
+    def __exit__(
+        self, exc_type: typing.Any, exc: typing.Any, traceback: typing.Any
+    ) -> None:
         self.stop()
         self.log.info(
             f"elapsed: {self.measure()}{'s' if self.res is TimerResolution.SECONDS else 'ns'}"

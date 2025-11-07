@@ -49,15 +49,34 @@ down:
 test:
 	$(PYTHON) -m unittest discover -v -s tests -p "*_test.py"
 
+mypy:
+	MYPYPATH=. mypy . --explicit-package-bases
+
+tests_full:
+	make test
+	make mypy
+
 venv:
 	rm -rf $(VENV) $(VENV_SYMLINK)
 	$(SYSTEM_PYTHON) -m venv $(VENV)
 	$(VENV_PYTHON) -m pip install -r requirements.txt
 	ln -s $(VENV) $(VENV_SYMLINK)
 
-.PHONY: db
+.PHONY: worker
+.PHONY: worker_active
+.PHONY: worker_logs
+.PHONY: worker_logs_f
+.PHONY: redis
+.PHONY: redis_logs
+.PHONY: redis_logs_f
+.PHONY: postgres
 .PHONY: app
+.PHONY: app_no_deps
+.PHONY: app_logs
+.PHONY: app_logs_f
 .PHONY: down
 .PHONY: migrate
 .PHONY: test
+.PHONY: mypy
+.PHONY: tests_full
 .PHONY: venv

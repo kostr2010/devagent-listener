@@ -3,7 +3,6 @@ import pydantic_settings
 
 class ListenerConfig(pydantic_settings.BaseSettings):
     GITCODE_TOKEN: str
-    GITEE_TOKEN: str
     LISTENER_PORT: int
     DEVAGENT_PROVIDER: str
     DEVAGENT_MODEL: str
