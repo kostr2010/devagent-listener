@@ -112,8 +112,8 @@ def _try_get_diff(token: str, url: str) -> Diff:
         total_files=int(data.get("count", 0)),
         added_lines=int(data.get("added_lines", 0)),
         removed_lines=int(data.get("remove_lines", 0)),
-        base_sha=str(data.get("diff_refs", {}).get("base_sha", "")),
-        head_sha=str(data.get("diff_refs", {}).get("head_sha", "")),
+        base_sha=str(data.get("diff_refs", dict()).get("base_sha", "")),
+        head_sha=str(data.get("diff_refs", dict()).get("head_sha", "")),
     )
 
     return Diff(
@@ -141,21 +141,21 @@ def _convert_to_standard_diff(api_response: dict[str, typing.Any]) -> list[DiffF
 
     for diff_item in api_response["diffs"]:
         # Extract file path
-        file_path = diff_item.get("statistic", {}).get("path", "unknown")
+        file_path = diff_item.get("statistic", dict()).get("path", "unknown")
 
         # Build standard diff format from the content
         diff_lines = []
 
         # Add diff header
-        old_path = diff_item.get("statistic", {}).get("old_path", file_path)
-        new_path = diff_item.get("statistic", {}).get("new_path", file_path)
+        old_path = diff_item.get("statistic", dict()).get("old_path", file_path)
+        new_path = diff_item.get("statistic", dict()).get("new_path", file_path)
         # FIXME: remove when not needed
         diff_lines.append(f"diff --git a/{old_path} b/{new_path}")
         diff_lines.append(f"--- a/{old_path}")
         diff_lines.append(f"+++ b/{new_path}")
 
         # Process text content
-        content = diff_item.get("content", {})
+        content = diff_item.get("content", dict())
         text_lines = content.get("text", [])
 
         for line_item in text_lines:

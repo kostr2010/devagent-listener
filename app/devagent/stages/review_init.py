@@ -215,7 +215,7 @@ def _emit_patch(task_id: str, wd: str, diff: str) -> str:
 def _load_rules_from_config(cfg: str) -> dict[str, set[str]]:
     lines = cfg.split("\n")
 
-    review_rules: dict[str, set[str]] = {}
+    review_rules = dict[str, set[str]]()
 
     for raw_line in lines:
         line = raw_line.strip()
@@ -241,7 +241,7 @@ def _load_rules_from_repo_root(project_root: str) -> dict[str, set[str]]:
         project_root
     ), f"No project root {project_root} for development rules was found"
 
-    review_rules: dict[str, set[str]] = {}
+    review_rules = dict[str, set[str]]()
 
     rules_config = abspath_join(project_root, ".REVIEW_RULES")
     assert os.path.exists(
@@ -258,7 +258,7 @@ def _load_rules_from_repo_root(project_root: str) -> dict[str, set[str]]:
 def _normalize_rules(
     wd: str, rules_project_root: str, rules: dict[str, set[str]]
 ) -> dict[str, list[str]]:
-    review_rules: dict[str, list[str]] = {}
+    review_rules = dict[str, list[str]]()
 
     rules_dir = abspath_join(rules_project_root, "REVIEW_RULES")
     assert os.path.exists(

@@ -43,8 +43,8 @@ def clean_workdir(wd: str) -> None:
 def process_review_result(
     rules: dict[str, list[str]], devagent_review: list[list[ReviewPatchResult]]
 ) -> ProcessedReview:
-    results: dict[str, list[DevagentViolation]] = {}
-    errors: dict[str, list[DevagentError]] = {}
+    results = dict[str, list[DevagentViolation]]()
+    errors = dict[str, list[DevagentError]]()
 
     devagent_review_flat: list[ReviewPatchResult] = []
     for review_chunk in devagent_review:
@@ -53,6 +53,11 @@ def process_review_result(
 
     for review in devagent_review_flat:
         project = review.project
+
+        assert bool(review.error) != bool(
+            review.result
+        ), "`error` and `result` are mutually exclusive and can not be both None"
+
         if review.error != None:
             errors_tmp = errors.get(project, [])
             errors_tmp.append(review.error)

@@ -80,7 +80,7 @@ async def action_get(
                 detail=f"Task info for task {task_id} expired or never existed",
             )
 
-        decoded = {}
+        decoded = dict()
         for k, v in task_info.items():
             decoded.update({k.decode("utf-8"): v.decode("utf-8")})
     except fastapi.HTTPException as httpe:

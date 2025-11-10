@@ -11,6 +11,12 @@ make venv
 
 ## Testing
 
+For testing purposes, `.env` file creation can be skipped like this
+
+```bash
+cp .env.example .env
+```
+
 To check code for static errors, run the following command
 
 ```bash
