@@ -8,7 +8,7 @@ import typing
 from app.celery.celery import celery_instance
 from app.config import CONFIG
 
-from app.devagent.impl.init_review import (
+from app.devagent.stages.review_init import (
     populate_workdir,
     get_diffs,
     load_rules,
@@ -16,12 +16,12 @@ from app.devagent.impl.init_review import (
     store_task_info_to_redis,
     DevagentTask,
 )
-from app.devagent.impl.review_patches import (
+from app.devagent.stages.review_patches import (
     devagent_review_patch,
     worker_get_range,
     ReviewPatchResult,
 )
-from app.devagent.impl.wrapup import (
+from app.devagent.stages.review_wrapup import (
     store_errors_to_postgres,
     clean_workdir,
     process_review_result,
@@ -36,7 +36,7 @@ devagent_worker = celery_instance(DEVAGENT_WORKER_NAME, CONFIG.REDIS_DEVAGENT_DB
 
 
 @devagent_worker.task(bind=True, track_started=True)  # type: ignore
-def launch_review(self: celery.Task, urls: list[str]) -> typing.Any:
+def review_init(self: celery.Task, urls: list[str]) -> typing.Any:
     task_id = self.request.id
     log_tag = f"[{task_id}]"
 
@@ -89,7 +89,7 @@ def launch_review(self: celery.Task, urls: list[str]) -> typing.Any:
             review_patches.s(tasks, i, DEVAGENT_REVIEW_GROUP_SIZE)
             for i in range(DEVAGENT_REVIEW_GROUP_SIZE)
         ],
-    )(wrapup.s(wd))
+    )(review_wrapup.s(wd))
 
 
 @devagent_worker.task(bind=True, track_started=True)  # type: ignore
@@ -101,7 +101,7 @@ def review_patches(
 
 
 @devagent_worker.task(bind=True, track_started=True)  # type: ignore
-def wrapup(
+def review_wrapup(
     self: celery.Task,
     review: list[list[dict[str, typing.Any]]],
     wd: str,

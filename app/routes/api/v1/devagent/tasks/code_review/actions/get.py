@@ -4,7 +4,7 @@ import pydantic
 import typing
 
 from app.devagent.worker import devagent_worker
-from app.devagent.impl.wrapup import ProcessedReview
+from app.devagent.stages.review_wrapup import ProcessedReview
 from app.routes.api.v1.devagent.tasks.validation import validate_query_params
 
 QUERY_PARAMS_SCHEMA = {

@@ -1,5 +1,5 @@
 - [ ] Add secret key validation for the requests
 - [ ] speed up workdir initialization
 - [ ] TESTS
-- [ ] unified response typings
 - [ ] replace literals with typed initializers
+- [

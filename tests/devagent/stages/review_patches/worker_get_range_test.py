@@ -1,6 +1,6 @@
 import unittest
 
-from app.devagent.impl.review_patches import worker_get_range
+from app.devagent.stages.review_patches import worker_get_range
 
 
 class GetWorkerRangeTest(unittest.TestCase):
@@ -54,15 +54,34 @@ class GetWorkerRangeTest(unittest.TestCase):
         self.assertEqual(worker_get_range(5, 6, 7), (5, 5))
 
     def test_invalid_idx(self) -> None:
-        self.assertRaises(AssertionError, worker_get_range, 10, -5, 5)
-        self.assertRaises(AssertionError, worker_get_range, 10, -1, 5)
-        self.assertRaises(AssertionError, worker_get_range, 10, 5, 5)
-        self.assertRaises(AssertionError, worker_get_range, 10, 6, 5)
+        with self.assertRaises(AssertionError) as e:
+            worker_get_range(10, -5, 5)
+        self.assertTrue("Invalid group index" in str(e.exception))
+
+        with self.assertRaises(AssertionError) as e:
+            worker_get_range(10, -1, 5)
+        self.assertTrue("Invalid group index" in str(e.exception))
+
+        with self.assertRaises(AssertionError) as e:
+            worker_get_range(10, 5, 5)
+        self.assertTrue("Invalid group index" in str(e.exception))
+
+        with self.assertRaises(AssertionError) as e:
+            worker_get_range(10, 6, 5)
+        self.assertTrue("Invalid group index" in str(e.exception))
 
     def devagent_invalid_group_size(self) -> None:
-        self.assertRaises(AssertionError, worker_get_range, 10, 6, 0)
-        self.assertRaises(AssertionError, worker_get_range, 10, 6, -5)
-        self.assertRaises(AssertionError, worker_get_range, 10, -7, -5)
+        with self.assertRaises(AssertionError) as e:
+            worker_get_range(10, 6, 0)
+        self.assertTrue("Invalid group size" in str(e.exception))
+
+        with self.assertRaises(AssertionError) as e:
+            worker_get_range(10, 6, -5)
+        self.assertTrue("Invalid group size" in str(e.exception))
+
+        with self.assertRaises(AssertionError) as e:
+            worker_get_range(10, -7, -5)
+        self.assertTrue("Invalid group size" in str(e.exception))
 
 
 if __name__ == "__main__":

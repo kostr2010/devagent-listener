@@ -57,9 +57,9 @@ def load_rules(wd: str) -> dict[str, list[str]]:
     )
 
     for dir, rules in filtered_rules.items():
-        assert os.path.exists(dir), f"Directory {dir} in parsed rules does not exist"
+        assert os.path.exists(dir), f"No directory {dir} was found"
         for rule in rules:
-            assert os.path.exists(rule), f"Rule {rule} in parsed rules does not exist"
+            assert os.path.exists(rule), f"No rule {rule} was found"
 
     return filtered_rules
 
@@ -91,7 +91,7 @@ def prepare_tasks(
 
 
 def store_task_info_to_redis(task_id: str, wd: str, tasks: list[DevagentTask]) -> None:
-    task_info = {}
+    task_info = dict()
 
     ark_dev_rules_root = _arkcompiler_development_rules_root(wd)
     task_info.update(
@@ -122,7 +122,7 @@ def store_task_info_to_redis(task_id: str, wd: str, tasks: list[DevagentTask]) -
 
     task_info.update(
         {
-            # last folders of the path == project
+            # last 2 folders of the path == project
             f"rev_{os.sep.join(os.path.normpath(project_path).split(os.sep)[-2:])}": _get_revision(
                 project_path
             )
@@ -237,12 +237,16 @@ def _load_rules_from_config(cfg: str) -> dict[str, set[str]]:
 
 
 def _load_rules_from_repo_root(project_root: str) -> dict[str, set[str]]:
+    assert os.path.exists(
+        project_root
+    ), f"No project root {project_root} for development rules was found"
+
     review_rules: dict[str, set[str]] = {}
 
     rules_config = abspath_join(project_root, ".REVIEW_RULES")
     assert os.path.exists(
         rules_config
-    ), f"No {rules_config} file was found in the project root {project_root}"
+    ), f"No config file {rules_config} was found in the project root {project_root}"
 
     with open(rules_config) as cfg:
         content = cfg.read()
@@ -259,7 +263,7 @@ def _normalize_rules(
     rules_dir = abspath_join(rules_project_root, "REVIEW_RULES")
     assert os.path.exists(
         rules_dir
-    ), f"No {rules_dir} dir was found in the project_root root {rules_project_root}"
+    ), f"No rules dir {rules_dir} was found in the project_root root {rules_project_root}"
 
     for dir, dir_rules in rules.items():
         dir_abs = abspath_join(wd, dir)

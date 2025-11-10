@@ -50,7 +50,7 @@ test:
 	$(PYTHON) -m unittest discover -v -s tests -p "*_test.py"
 
 mypy:
-	MYPYPATH=. mypy . --explicit-package-bases
+	MYPYPATH=. $(PYTHON) -m mypy . --explicit-package-bases
 
 tests_full:
 	make test

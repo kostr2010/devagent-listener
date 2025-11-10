@@ -10,7 +10,7 @@ from app.postgres.models import Error
 from app.postgres.infrastructure import save_patch_if_does_not_exist
 from app.postgres.database import SQL_SESSION
 from app.utils.path import abspath_join
-from app.devagent.impl.review_patches import (
+from app.devagent.stages.review_patches import (
     DevagentError,
     DevagentViolation,
     ReviewPatchResult,

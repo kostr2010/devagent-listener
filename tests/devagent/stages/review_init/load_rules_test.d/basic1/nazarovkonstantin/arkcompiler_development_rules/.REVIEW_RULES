@@ -1,0 +1,22 @@
+# single rule per dir
+
+project1/dir1 rule1.md
+
+# multiple rules per dir
+
+project1/dir2 rule2.md rule3.md
+
+# duplicate rules per dir
+
+project2/dir1 rule1.md rule1.md
+project2/dir1 rule1.md
+
+# top level dir contains the rule
+
+project2/ rule2.md
+
+# adding rules to the dir
+
+project2/dir3 rule1.md
+project2/dir3 rule2.md
+project2/dir3 rule3.md

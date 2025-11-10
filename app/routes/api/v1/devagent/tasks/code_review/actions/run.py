@@ -3,7 +3,7 @@ import validators
 import pydantic
 import typing
 
-from app.devagent.worker import launch_review
+from app.devagent.worker import review_init
 from app.routes.api.v1.devagent.tasks.validation import validate_query_params
 
 
@@ -38,7 +38,7 @@ def action_run(
 
         _validate_url_list(urls)
 
-        task = launch_review.s(urls).apply_async()
+        task = review_init.s(urls).apply_async()
 
         print(f"started task {task.id} for payload {payload}")
     except fastapi.HTTPException as httpe:

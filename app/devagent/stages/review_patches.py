@@ -32,9 +32,9 @@ class ReviewPatchResult(pydantic.BaseModel):
 
 
 def worker_get_range(n_tasks: int, group_idx: int, group_size: int) -> tuple[int, int]:
-    assert group_size > 0
-    assert 0 <= group_idx
-    assert group_idx < group_size
+    assert group_size > 0, "Invalid group size"
+    assert 0 <= group_idx, "Invalid group index"
+    assert group_idx < group_size, "Invalid group index"
 
     per_worker = n_tasks // group_size
     n_residue_tasks = n_tasks % group_size
