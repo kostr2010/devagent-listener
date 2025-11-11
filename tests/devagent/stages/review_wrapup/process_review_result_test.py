@@ -253,3 +253,7 @@ class ProcessReviewResultTest(unittest.TestCase):
             },
         }
         self.assertDictEqual(ans, res_dict)
+
+
+if __name__ == "__main__":
+    unittest.main()

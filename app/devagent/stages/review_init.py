@@ -19,7 +19,7 @@ DevagentTask = tuple[str, str, str]
 
 ARKCOMPILER_DEVELOPMENT_RULES: tuple[str, str] = (
     "nazarovkonstantin/arkcompiler_development_rules",
-    "dev",
+    "main",
 )
 
 

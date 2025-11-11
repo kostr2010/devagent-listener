@@ -10,3 +10,7 @@ class PatchAnalyzerTest(unittest.TestCase):
         # print(pa.verboseFrontEndSummary())
         # print(pa.verboseTestSummary())
         # print("\n".join(pa.rawSummary()))
+
+
+if __name__ == "__main__":
+    unittest.main()

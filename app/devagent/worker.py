@@ -17,7 +17,7 @@ from app.devagent.stages.review_init import (
     DevagentTask,
 )
 from app.devagent.stages.review_patches import (
-    devagent_review_patch,
+    review_patch,
     worker_get_range,
     ReviewPatchResult,
 )
@@ -140,9 +140,7 @@ def _review_patches(
         patch_review_result = None
 
         try:
-            patch_review_result = devagent_review_patch(
-                repo_root, patch_path, rule_path
-            )
+            patch_review_result = review_patch(repo_root, patch_path, rule_path)
         except Exception:
             raise celery.exceptions.TaskError(_exception_message(log_tag))
 

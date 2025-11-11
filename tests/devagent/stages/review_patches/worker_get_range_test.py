@@ -3,7 +3,7 @@ import unittest
 from app.devagent.stages.review_patches import worker_get_range
 
 
-class GetWorkerRangeTest(unittest.TestCase):
+class WorkerGetRangeTest(unittest.TestCase):
     def test_no_tasks(self) -> None:
         self.assertEqual(worker_get_range(0, 0, 1), (0, 0))
         self.assertEqual(worker_get_range(0, 1, 2), (0, 0))
