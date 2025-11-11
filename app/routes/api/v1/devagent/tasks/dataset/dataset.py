@@ -1,0 +1,53 @@
+import enum
+import fastapi
+import typing
+import sqlalchemy.ext.asyncio
+
+from app.routes.api.v1.devagent.tasks.dataset.actions.errors import (
+    action_errors,
+    Response as ErrorsResponse,
+)
+from app.routes.api.v1.devagent.tasks.dataset.actions.user_feedback import (
+    action_user_feedback,
+    Response as UserFeedbackResponse,
+)
+
+
+class Action(enum.IntEnum):
+    ACTION_ERRORS = 0
+    ACTION_USER_FEEDBACK = 1
+
+
+Response = ErrorsResponse | UserFeedbackResponse
+
+
+async def dataset(
+    postgres: sqlalchemy.ext.asyncio.AsyncSession,
+    action: int,
+    query_params: dict[str, typing.Any],
+) -> Response:
+    _validate_action(action)
+
+    if Action.ACTION_ERRORS.value == action:
+        return await action_errors(postgres=postgres, query_params=query_params)
+
+    if Action.ACTION_USER_FEEDBACK.value == action:
+        return await action_user_feedback(postgres=postgres, query_params=query_params)
+
+    raise fastapi.HTTPException(
+        status_code=500,
+        detail=f"[task_task_info] Unhandled action={action}",
+    )
+
+
+###########
+# private #
+###########
+
+
+def _validate_action(action: int) -> None:
+    if action not in [e.value for e in Action]:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=f"Invalid action value: action={action}",
+        )

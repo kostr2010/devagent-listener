@@ -4,16 +4,20 @@ import sqlalchemy.ext.asyncio
 import redis.asyncio
 
 from app.routes.api.v1.devagent.tasks.code_review.code_review import (
-    task_code_review,
+    code_review,
     Response as CodeReviewResponse,
 )
 from app.routes.api.v1.devagent.tasks.user_feedback.user_feedback import (
-    task_user_feedback,
+    user_feedback,
     Response as UserFeedbackResponse,
 )
 from app.routes.api.v1.devagent.tasks.task_info.task_info import (
-    task_task_info,
+    task_info,
     Response as TaskInfoResponse,
+)
+from app.routes.api.v1.devagent.tasks.dataset.dataset import (
+    dataset,
+    Response as DatasetResponse,
 )
 
 
@@ -21,9 +25,12 @@ class TaskKind(enum.IntEnum):
     TASK_KIND_CODE_REVIEW = 0  # Code review
     TASK_KIND_USER_FEEDBACK = 1  # Feedback for the rules
     TASK_KIND_TASK_INFO = 2  # Misc info about the task
+    TASK_KIND_DATASET = 3  # Misc info about the task
 
 
-Response = CodeReviewResponse | UserFeedbackResponse | TaskInfoResponse
+Response = (
+    CodeReviewResponse | UserFeedbackResponse | TaskInfoResponse | DatasetResponse
+)
 
 
 async def endpoint_api_v1_devagent(
@@ -39,10 +46,10 @@ async def endpoint_api_v1_devagent(
     query_params = dict(request.query_params)
 
     if TaskKind.TASK_KIND_CODE_REVIEW.value == task_kind:
-        return task_code_review(action=action, query_params=query_params)
+        return code_review(action=action, query_params=query_params)
 
     if TaskKind.TASK_KIND_USER_FEEDBACK.value == task_kind:
-        return await task_user_feedback(
+        return await user_feedback(
             postgres=postgres,
             redis=redis,
             action=action,
@@ -50,8 +57,11 @@ async def endpoint_api_v1_devagent(
         )
 
     if TaskKind.TASK_KIND_TASK_INFO.value == task_kind:
-        return await task_task_info(
-            redis=redis, action=action, query_params=query_params
+        return await task_info(redis=redis, action=action, query_params=query_params)
+
+    if TaskKind.TASK_KIND_DATASET.value == task_kind:
+        return await dataset(
+            postgres=postgres, action=action, query_params=query_params
         )
 
     raise fastapi.HTTPException(
