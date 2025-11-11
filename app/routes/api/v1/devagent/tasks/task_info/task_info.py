@@ -21,7 +21,7 @@ class Action(enum.IntEnum):
 Response = GetResponse | SetResponse
 
 
-async def task_task_info(
+async def task_info(
     redis: redis.asyncio.Redis,
     action: int,
     query_params: dict[str, typing.Any],

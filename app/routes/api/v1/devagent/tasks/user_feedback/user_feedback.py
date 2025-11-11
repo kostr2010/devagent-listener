@@ -17,7 +17,7 @@ class Action(enum.IntEnum):
 Response = SetResponse
 
 
-async def task_user_feedback(
+async def user_feedback(
     postgres: sqlalchemy.ext.asyncio.AsyncSession,
     redis: redis.asyncio.Redis,
     action: int,

@@ -20,7 +20,7 @@ class Action(enum.IntEnum):
 Response = GetResponse | RunResponse
 
 
-def task_code_review(action: int, query_params: dict[str, typing.Any]) -> Response:
+def code_review(action: int, query_params: dict[str, typing.Any]) -> Response:
     """Work with the code review of the devagent for given PRs
 
     Args:
