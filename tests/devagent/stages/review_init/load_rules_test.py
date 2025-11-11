@@ -137,3 +137,7 @@ class LoadRulesTest(unittest.TestCase):
             ],
         }
         self.assertDictEqual(rules, ans)
+
+
+if __name__ == "__main__":
+    unittest.main()

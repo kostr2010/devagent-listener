@@ -40,6 +40,11 @@ app_logs:
 app_logs_f:
 	docker logs devagent_listener_app -f
 
+update_app:
+	docker compose rm -s -v -f listener_app
+	docker compose rm -s -v -f listener_devagent_worker
+	make app
+
 down:
 	docker compose rm -s -v -f listener_app
 	docker compose rm -s -v -f listener_devagent_worker
