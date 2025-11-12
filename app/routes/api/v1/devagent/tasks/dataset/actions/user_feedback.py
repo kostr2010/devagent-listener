@@ -16,8 +16,8 @@ QUERY_PARAMS_SCHEMA = {
     "title": "user_feedback_set query params schema",
     "description": "Query params schema of user_feedback_set API",
     "type": "object",
-    "properties": {},
-    "required": [],
+    "properties": dict(),
+    "required": list(),
     "additionalProperties": True,
 }
 
@@ -80,7 +80,7 @@ async def action_user_feedback(
     except Exception as e:
         raise fastapi.HTTPException(
             status_code=500,
-            detail=f"[user_feedback_set] Exception {type(e)} occured during handling of task dataset user_feedback: {str(e)}",
+            detail=f"[dataset_user_feedback] Exception {type(e)} occured during handling of task dataset user_feedback: {str(e)}",
         )
     else:
         return Response(archive=f"{archive}.zip")

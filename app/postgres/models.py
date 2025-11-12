@@ -7,10 +7,10 @@ SQL_BASE = sqlalchemy.ext.declarative.declarative_base()
 
 
 class Feedback(enum.IntEnum):
-    TRUE_POSITIVE = 0
-    FALSE_POSITIVE = 1
-    TRUE_NEGATIE = 2
-    FALSE_NEGATIE = 3
+    FALSE_POSITIVE = 0
+    TRUE_POSITIVE = 1
+    FALSE_NEGATIE = 2
+    TRUE_NEGATIE = 3
 
 
 class Patch(SQL_BASE):  # type: ignore

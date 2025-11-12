@@ -133,7 +133,7 @@ def _review_patches(
     else:
         print(f"{log_tag} received {len(tasks)} tasks {tasks}")
 
-    results = []
+    results = list()
 
     for task in tasks:
         repo_root, patch_path, rule_path = task

@@ -49,25 +49,25 @@ class ProcessReviewResultTest(unittest.TestCase):
         wd = _get_wd("basic")
         rules = load_rules(wd)
 
-        res = process_review_result(rules, [])
+        res = process_review_result(rules, list())
         res_dict = res.model_dump()
-        ans: dict[str, typing.Any] = {"errors": {}, "results": {}}
+        ans: dict[str, typing.Any] = {"errors": dict(), "results": dict()}
         self.assertDictEqual(ans, res_dict)
 
-        res = process_review_result(rules, [[]])
+        res = process_review_result(rules, [list()])
         res_dict = res.model_dump()
-        ans = {"errors": {}, "results": {}}
+        ans = {"errors": dict(), "results": dict()}
         self.assertDictEqual(ans, res_dict)
 
-        res = process_review_result(rules, [[], [], []])
+        res = process_review_result(rules, [list(), list(), list()])
         res_dict = res.model_dump()
-        ans = {"errors": {}, "results": {}}
+        ans = {"errors": dict(), "results": dict()}
         self.assertDictEqual(ans, res_dict)
 
         res = process_review_result(
             rules,
             [
-                [],
+                list(),
                 [
                     ReviewPatchResult(
                         project="project1",
@@ -75,20 +75,20 @@ class ProcessReviewResultTest(unittest.TestCase):
                         result=None,
                     )
                 ],
-                [],
+                list(),
             ],
         )
         res_dict = res.model_dump()
         ans = {
             "errors": {"project1": [{"message": "m", "patch": "p", "rule": "r"}]},
-            "results": {},
+            "results": dict(),
         }
         self.assertDictEqual(ans, res_dict)
 
         res = process_review_result(
             rules,
             [
-                [],
+                list(),
                 [
                     ReviewPatchResult(
                         project="project1",
@@ -108,13 +108,13 @@ class ProcessReviewResultTest(unittest.TestCase):
                         ),
                     )
                 ],
-                [],
+                list(),
             ],
         )
         res_dict = res.model_dump()
         ans = {
-            "errors": {},
-            "results": {"project1": []},
+            "errors": dict(),
+            "results": {"project1": list()},
         }
         self.assertDictEqual(ans, res_dict)
 
@@ -125,7 +125,7 @@ class ProcessReviewResultTest(unittest.TestCase):
         res = process_review_result(
             rules,
             [
-                [],
+                list(),
                 [
                     ReviewPatchResult(
                         project="project1",
@@ -133,13 +133,13 @@ class ProcessReviewResultTest(unittest.TestCase):
                         result=None,
                     )
                 ],
-                [],
+                list(),
             ],
         )
         res_dict = res.model_dump()
         ans: dict[str, typing.Any] = {
             "errors": {"project1": [{"message": "m", "patch": "p", "rule": "r"}]},
-            "results": {},
+            "results": dict(),
         }
         self.assertDictEqual(ans, res_dict)
 
@@ -228,7 +228,7 @@ class ProcessReviewResultTest(unittest.TestCase):
         )
         res_dict = res.model_dump()
         ans = {
-            "errors": {},
+            "errors": dict(),
             "results": {
                 "project1": [
                     {

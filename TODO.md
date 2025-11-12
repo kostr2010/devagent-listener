@@ -1,4 +1,1 @@
-- [ ] Add secret key validation for the requests
-- [ ] speed up workdir initialization
 - [ ] TESTS
-- [ ] replace literals with typed initializers

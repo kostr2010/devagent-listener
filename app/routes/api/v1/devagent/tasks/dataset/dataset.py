@@ -26,6 +26,20 @@ async def dataset(
     action: int,
     query_params: dict[str, typing.Any],
 ) -> Response:
+    """Create dataset from the information stored in db
+
+    Args:
+        postgres (sqlalchemy.ext.asyncio.AsyncSession): postgres connection used to query database
+        action (int): Action required by the endpoint. Can be one of the `Action` enum
+        query_params (dict[str, typing.Any]): Payload for the endpoint. Interpreted differently depending on the action
+
+    Raises:
+        fastapi.HTTPException: in case of internal server errors or invalid user inputs
+
+    Returns:
+        Response: answer, depends on the action
+    """
+
     _validate_action(action)
 
     if Action.ACTION_ERRORS.value == action:

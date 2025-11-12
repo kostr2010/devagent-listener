@@ -24,12 +24,8 @@ ARKCOMPILER_DEVELOPMENT_RULES: tuple[str, str] = (
 
 
 def populate_workdir(wd: str, diffs: list[Diff]) -> None:
-    global_devagent_config = "/.devagent.toml"
-    assert os.path.exists(
-        global_devagent_config
-    ), f"Global devagent config {global_devagent_config} does not exist"
-    local_devagent_config = abspath_join(wd, ".devagent.toml")
-    shutil.copyfile(global_devagent_config, local_devagent_config)
+    assert os.path.exists(wd), f"Working widectory {wd} does not exist"
+    local_devagent_config = _create_devagent_config(wd)
     assert os.path.exists(
         local_devagent_config
     ), f"Local devagent config {local_devagent_config} does not exist"
@@ -170,7 +166,7 @@ def _map_applicable_rules_to_diffs(
 
 
 def _combine_diff(diff: Diff) -> str:
-    diffs: list[str] = []
+    diffs = list[str]()
 
     for file in diff.files:
         diffs.append(file.diff)
@@ -318,3 +314,13 @@ def _get_revision(root: str) -> str:
     stdout = res.stdout.decode("utf-8")
 
     return stdout.strip()
+
+
+def _create_devagent_config(wd: str) -> str:
+    devagent_config_path = os.path.abspath(os.path.join(wd, ".devagent.toml"))
+    with open(devagent_config_path, "w") as cfg:
+        cfg.write(f"provider = {CONFIG.DEVAGENT_PROVIDER}\n")
+        cfg.write(f"model = {CONFIG.DEVAGENT_MODEL}\n")
+        cfg.write(f"api_key = {CONFIG.DEVAGENT_API_KEY}\n")
+        cfg.write(f"auto_approve_code = false\n")
+    return devagent_config_path

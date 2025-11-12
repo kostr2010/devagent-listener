@@ -25,7 +25,7 @@ class TaskKind(enum.IntEnum):
     TASK_KIND_CODE_REVIEW = 0  # Code review
     TASK_KIND_USER_FEEDBACK = 1  # Feedback for the rules
     TASK_KIND_TASK_INFO = 2  # Misc info about the task
-    TASK_KIND_DATASET = 3  # Misc info about the task
+    TASK_KIND_DATASET = 3  # Collect db info into dataset
 
 
 Response = (

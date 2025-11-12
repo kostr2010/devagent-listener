@@ -46,7 +46,7 @@ def process_review_result(
     results = dict[str, list[DevagentViolation]]()
     errors = dict[str, list[DevagentError]]()
 
-    devagent_review_flat: list[ReviewPatchResult] = []
+    devagent_review_flat = list[ReviewPatchResult]()
     for review_chunk in devagent_review:
         for review in review_chunk:
             devagent_review_flat.append(review)
@@ -59,12 +59,12 @@ def process_review_result(
         ), "`error` and `result` are mutually exclusive and can not be both None"
 
         if review.error != None:
-            errors_tmp = errors.get(project, [])
+            errors_tmp = errors.get(project, list())
             errors_tmp.append(review.error)
             errors.update({project: errors_tmp})
         elif review.result != None:
             violations: list[DevagentViolation] = review.result.violations
-            results_tmp: list[DevagentViolation] = results.get(project, [])
+            results_tmp: list[DevagentViolation] = results.get(project, list())
             results_tmp.extend(violations)
             results.update({project: results_tmp})
         else:
@@ -131,7 +131,7 @@ async def _store_errors_to_postgres(
     rev_devagent = task_info["rev_egavrin/devagent"]
 
     async with SQL_SESSION() as postgres:
-        orm_errors: list[Error] = []
+        orm_errors = list[Error]()
 
         for project, repo_errors in errors.items():
             rev_project = task_info[f"rev_{project}"]

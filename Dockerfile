@@ -19,10 +19,5 @@ RUN pip install -e . --timeout 300
 WORKDIR /devagent-listener
 
 COPY . .
-RUN pip install -r requirements.txt --timeout 300
 
-RUN true > /.devagent.toml
-RUN echo "provider = \"$DEVAGENT_PROVIDER\"" >> /.devagent.toml
-RUN echo "model = \"$DEVAGENT_MODEL\"" >> /.devagent.toml
-RUN echo "api_key = \"$DEVAGENT_API_KEY\"" >> /.devagent.toml
-RUN echo "auto_approve_code = false" >> /.devagent.toml
+RUN pip install -r requirements.txt --timeout 300
