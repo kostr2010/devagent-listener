@@ -8,6 +8,7 @@ import typing
 from app.postgres.database import SQL_SESSION, SQL_ENGINE
 from app.redis.redis import init_async_redis_conn
 from app.config import CONFIG
+from app.auth.authentication import authenticate_request
 
 from app.routes.api.v1.devagent.endpoint import (
     endpoint_api_v1_devagent,
@@ -57,12 +58,16 @@ listener = fastapi.FastAPI(debug=True, lifespan=lifespan)
 
 
 @listener.get("/health")
-def health() -> ResponseHealth:
+def health(response: fastapi.Response, request: fastapi.Request) -> ResponseHealth:
     """Basic healthcheck endpoint
 
     Returns:
-        HealthResponse: response with the 'healthy' status
+        ResponseHealth: response with the 'healthy' status
     """
+
+    if not authenticate_request(request):
+        raise fastapi.HTTPException(status_code=400, detail="Authentication failed")
+
     return endpoint_health()
 
 
@@ -86,9 +91,11 @@ async def api_v1_devagent(
         redis (redis.asyncio.Redis, optional): redis connection. Defaults to fastapi.Depends(get_redis).
 
     Returns:
-        ApiV1DevagentResponse: response. depends on the task_kind and action provided
+        ResponseApiV1Devagent: response. depends on the task_kind and action provided
     """
-    # TODO: add secret key validation
+
+    # if not authenticate_request(request):
+    #     raise fastapi.HTTPException(status_code=400, detail="Authentication failed")
 
     return await endpoint_api_v1_devagent(
         response=response,

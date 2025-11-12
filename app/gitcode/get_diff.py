@@ -134,7 +134,7 @@ def _convert_to_standard_diff(api_response: dict[str, typing.Any]) -> list[DiffF
     Returns:
         List of dicts with 'file' and 'diff' keys
     """
-    result: list[DiffFile] = []
+    result = list[DiffFile]()
 
     if "diffs" not in api_response:
         return result
@@ -144,7 +144,7 @@ def _convert_to_standard_diff(api_response: dict[str, typing.Any]) -> list[DiffF
         file_path = diff_item.get("statistic", dict()).get("path", "unknown")
 
         # Build standard diff format from the content
-        diff_lines = []
+        diff_lines = list()
 
         # Add diff header
         old_path = diff_item.get("statistic", dict()).get("old_path", file_path)
@@ -156,7 +156,7 @@ def _convert_to_standard_diff(api_response: dict[str, typing.Any]) -> list[DiffF
 
         # Process text content
         content = diff_item.get("content", dict())
-        text_lines = content.get("text", [])
+        text_lines = content.get("text", list())
 
         for line_item in text_lines:
             line_content = line_item.get("line_content", "")

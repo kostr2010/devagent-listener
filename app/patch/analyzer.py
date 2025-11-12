@@ -157,7 +157,7 @@ class PatchAnalyzer:
         """
 
         self.patch_name = patch_name
-        self.file_facts: list[FileInfo] = []
+        self.file_facts = list[FileInfo]()
 
     def _commit_file_info(self, fi: FileInfo | None) -> None:
         """Appends a new FileInfo item fi to the internal storage."""
@@ -446,7 +446,7 @@ class PatchAnalyzer:
     def rawSummary(self) -> list[str]:
         """Returns a list of strings, each item being a short file summary."""
 
-        raw: list[str] = []
+        raw = list[str]()
         for fi in self.file_facts:
             summary = fi.new_name
             if fi.state == "removed":
