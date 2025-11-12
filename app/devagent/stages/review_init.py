@@ -319,8 +319,8 @@ def _get_revision(root: str) -> str:
 def _create_devagent_config(wd: str) -> str:
     devagent_config_path = os.path.abspath(os.path.join(wd, ".devagent.toml"))
     with open(devagent_config_path, "w") as cfg:
-        cfg.write(f"provider = {CONFIG.DEVAGENT_PROVIDER}\n")
-        cfg.write(f"model = {CONFIG.DEVAGENT_MODEL}\n")
-        cfg.write(f"api_key = {CONFIG.DEVAGENT_API_KEY}\n")
+        cfg.write(f'provider = "{CONFIG.DEVAGENT_PROVIDER}"\n')
+        cfg.write(f'model = "{CONFIG.DEVAGENT_MODEL}"\n')
+        cfg.write(f'api_key = "{CONFIG.DEVAGENT_API_KEY}"\n')
         cfg.write(f"auto_approve_code = false\n")
     return devagent_config_path
