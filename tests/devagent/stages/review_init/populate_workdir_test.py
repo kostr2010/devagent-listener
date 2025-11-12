@@ -66,9 +66,9 @@ class PopulateWorkdirTest(unittest.TestCase):
             content = cfg.read()
 
             ans = ""
-            ans += f"provider = {CONFIG.DEVAGENT_PROVIDER}\n"
-            ans += f"model = {CONFIG.DEVAGENT_MODEL}\n"
-            ans += f"api_key = {CONFIG.DEVAGENT_API_KEY}\n"
+            ans += f'provider = "{CONFIG.DEVAGENT_PROVIDER}"\n'
+            ans += f'model = "{CONFIG.DEVAGENT_MODEL}"\n'
+            ans += f'api_key = "{CONFIG.DEVAGENT_API_KEY}"\n'
             ans += f"auto_approve_code = false\n"
 
             self.assertEqual(content, ans)
