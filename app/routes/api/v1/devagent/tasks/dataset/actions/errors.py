@@ -13,8 +13,6 @@ from app.postgres.models import Error, Patch
 
 QUERY_PARAMS_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "title": "user_feedback_set query params schema",
-    "description": "Query params schema of user_feedback_set API",
     "type": "object",
     "properties": dict(),
     "required": list(),
@@ -63,6 +61,13 @@ async def action_errors(
                 patch_content = str(patch.content)
                 p.write(patch_content)
 
+            context_file = os.path.join(error_wd, "context.md")
+            with open(context_file, "w") as p:
+                if patch.context == None:
+                    context = ""
+                else:
+                    context = str(patch.context)
+                p.write(context)
         archive = os.path.join(
             tempfile.mkdtemp(), f"errors-{datetime.datetime.now().date()}"
         )

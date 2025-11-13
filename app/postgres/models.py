@@ -24,6 +24,7 @@ class Patch(SQL_BASE):  # type: ignore
         autoincrement=False,
     )
     content = sqlalchemy.Column(sqlalchemy.String, nullable=False)
+    context = sqlalchemy.Column(sqlalchemy.String, nullable=True)
 
 
 class UserFeedback(SQL_BASE):  # type: ignore

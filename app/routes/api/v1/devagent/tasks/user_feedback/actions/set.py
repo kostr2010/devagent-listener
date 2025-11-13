@@ -10,6 +10,11 @@ from app.postgres.models import UserFeedback
 from app.postgres.infrastructure import save_patch_if_does_not_exist
 from app.routes.api.v1.devagent.tasks.validation import validate_query_params
 from app.routes.api.v1.devagent.tasks.task_info.actions.get import action_get
+from app.redis.models import (
+    task_info_patch_content_key,
+    task_info_patch_context_key,
+    task_info_project_revision_key,
+)
 
 QUERY_PARAMS_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -46,29 +51,42 @@ async def action_set(
     query_params: dict[str, typing.Any],
 ) -> Response:
     try:
-        feedback = query_params["feedback"]
         data = query_params["data"]
-
         project, file, line, rule = _decrypt_project_file_line_rule(data)
 
         task_info = await action_get(redis=redis, query_params=query_params)
 
-        rev_arkcompiler_development_rules = task_info[
-            "rev_nazarovkonstantin/arkcompiler_development_rules"
-        ]
-        rev_devagent = task_info["rev_egavrin/devagent"]
-        rev_project = task_info[f"rev_{project}"]
-        patch = task_info[rule]
-        content = task_info[patch]
+        ark_dev_rules_project = "nazarovkonstantin/arkcompiler_development_rules"
+        ark_dev_rules_rev_key = task_info_project_revision_key(ark_dev_rules_project)
+        ark_rev_rules_rev = task_info[ark_dev_rules_rev_key]
 
-        await save_patch_if_does_not_exist(postgres, patch, content)
+        devagent_project = "egavrin/devagent"
+        devagent_rev_key = task_info_project_revision_key(devagent_project)
+        devagent_rev = task_info[devagent_rev_key]
+
+        project_rev_key = task_info_project_revision_key(project)
+        project_rev = task_info[project_rev_key]
+
+        patch_name = task_info[rule]
+
+        patch_content_key = task_info_patch_content_key(patch_name)
+        patch_content = task_info[patch_content_key]
+
+        patch_context_key = task_info_patch_context_key(patch_name)
+        patch_context = task_info[patch_context_key]
+
+        await save_patch_if_does_not_exist(
+            postgres, patch_name, patch_content, patch_context
+        )
+
+        feedback = query_params["feedback"]
 
         orm_feedback = UserFeedback(
-            rev_arkcompiler_development_rules=rev_arkcompiler_development_rules,
-            rev_devagent=rev_devagent,
+            rev_arkcompiler_development_rules=ark_rev_rules_rev,
+            rev_devagent=devagent_rev,
             project=project,
-            rev_project=rev_project,
-            patch=patch,
+            rev_project=project_rev,
+            patch=patch_name,
             rule=rule,
             file=file,
             line=int(line),

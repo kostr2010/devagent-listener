@@ -22,7 +22,9 @@ class PopulateWorkdirTest(unittest.TestCase):
             self._check_devagent_toml(wd)
 
             wd_content = os.listdir(wd)
-            self.assertListEqual(wd_content, ["nazarovkonstantin", ".devagent.toml"])
+            self.assertListEqual(
+                sorted(wd_content), sorted(["nazarovkonstantin", ".devagent.toml"])
+            )
 
     def test_several_empty_diffs(self) -> None:
         with tempfile.TemporaryDirectory() as wd:
@@ -33,12 +35,13 @@ class PopulateWorkdirTest(unittest.TestCase):
 
             wd_content = os.listdir(wd)
             self.assertListEqual(
-                wd_content, ["nazarovkonstantin", ".devagent.toml", "openharmony"]
+                sorted(wd_content),
+                sorted(["nazarovkonstantin", ".devagent.toml", "openharmony"]),
             )
             openharmony_content = os.listdir(os.path.join(wd, "openharmony"))
             self.assertListEqual(
-                openharmony_content,
-                ["arkcompiler_runtime_core", "arkcompiler_ets_frontend"],
+                sorted(openharmony_content),
+                sorted(["arkcompiler_runtime_core", "arkcompiler_ets_frontend"]),
             )
             arkcompiler_ets_frontend_root = os.path.join(
                 os.path.join(wd, "openharmony", "arkcompiler_ets_frontend")

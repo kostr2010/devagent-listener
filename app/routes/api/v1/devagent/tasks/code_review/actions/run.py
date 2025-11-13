@@ -9,8 +9,6 @@ from app.routes.api.v1.devagent.tasks.validation import validate_query_params
 
 QUERY_PARAMS_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "title": "code_review_run query params schema",
-    "description": "Query params schema of code_review_run API",
     "type": "object",
     "properties": {
         "payload": {

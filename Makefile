@@ -28,6 +28,12 @@ redis_logs_f:
 postgres:
 	docker compose up -d listener_postgres
 
+pgadmin:
+	docker compose up -d listener_pgadmin
+
+pgadmin_down:
+	docker compose rm -s -v -f listener_pgadmin
+
 app:
 	docker compose up -d --build listener_app 
 

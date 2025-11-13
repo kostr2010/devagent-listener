@@ -5,7 +5,10 @@ from app.postgres.models import Patch
 
 
 async def save_patch_if_does_not_exist(
-    postgres: sqlalchemy.ext.asyncio.AsyncSession, id: str, content: str
+    postgres: sqlalchemy.ext.asyncio.AsyncSession,
+    id: str,
+    content: str,
+    context: str | None,
 ) -> None:
     query_res = await postgres.execute(
         sqlalchemy.future.select(Patch).where(Patch.id == id)
@@ -15,7 +18,7 @@ async def save_patch_if_does_not_exist(
     if existing_patch != None:
         return
 
-    new_patch = Patch(id=id, content=content)
+    new_patch = Patch(id=id, content=content, context=context)
 
     postgres.add(new_patch)
 

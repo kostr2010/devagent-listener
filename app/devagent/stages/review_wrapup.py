@@ -15,6 +15,11 @@ from app.devagent.stages.review_patches import (
     DevagentViolation,
     ReviewPatchResult,
 )
+from app.redis.models import (
+    task_info_patch_content_key,
+    task_info_patch_context_key,
+    task_info_project_revision_key,
+)
 
 
 class ProcessedReview(pydantic.BaseModel):
@@ -125,30 +130,39 @@ async def _store_errors_to_postgres(
     task_info = await action_get(redis=conn, query_params={"task_id": task_id})
     await conn.close()
 
-    rev_arkcompiler_development_rules = task_info[
-        "rev_nazarovkonstantin/arkcompiler_development_rules"
-    ]
-    rev_devagent = task_info["rev_egavrin/devagent"]
+    ark_dev_rules_project = "nazarovkonstantin/arkcompiler_development_rules"
+    ark_dev_rules_rev_key = task_info_project_revision_key(ark_dev_rules_project)
+    ark_dev_rules_rev = task_info[ark_dev_rules_rev_key]
+
+    devagent_project = "egavrin/devagent"
+    devagent_rev_key = task_info_project_revision_key(devagent_project)
+    devagent_rev = task_info[devagent_rev_key]
 
     async with SQL_SESSION() as postgres:
         orm_errors = list[Error]()
 
         for project, repo_errors in errors.items():
-            rev_project = task_info[f"rev_{project}"]
+            project_rev_key = task_info_project_revision_key(project)
+            project_rev = task_info[project_rev_key]
             for error in repo_errors:
-                patch = error.patch
                 rule = error.rule
                 message = error.message
-                content = task_info[patch]
+                patch_name = task_info[rule]
+                patch_content_key = task_info_patch_context_key(patch_name)
+                patch_content = task_info[patch_content_key]
+                patch_context_key = task_info_patch_context_key(patch_name)
+                patch_context = task_info[patch_context_key]
 
-                await save_patch_if_does_not_exist(postgres, patch, content)
+                await save_patch_if_does_not_exist(
+                    postgres, patch_name, patch_content, patch_context
+                )
 
                 orm_error: Error = Error(
-                    rev_arkcompiler_development_rules=rev_arkcompiler_development_rules,
-                    rev_devagent=rev_devagent,
+                    rev_arkcompiler_development_rules=ark_dev_rules_rev,
+                    rev_devagent=devagent_rev,
                     project=project,
-                    rev_project=rev_project,
-                    patch=patch,
+                    rev_project=project_rev,
+                    patch=patch_name,
                     rule=rule,
                     message=message,
                 )

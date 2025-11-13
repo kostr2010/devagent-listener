@@ -46,12 +46,7 @@ async def task_info(
         return await action_get(redis=redis, query_params=query_params)
 
     if Action.ACTION_SET.value == action:
-        # TODO: lift this when adequate auth is added to the requests
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f"[task_task_info] Can not invoke action={action} via url request",
-        )
-        return await action_set(redis=redis, query_params=query_params)  # type: ignore
+        return await action_set(redis=redis, query_params=query_params)
 
     raise fastapi.HTTPException(
         status_code=500,
