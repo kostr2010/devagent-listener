@@ -4,7 +4,7 @@ project1/dir1 rule1.md
 
 # multiple rules per dir
 
-project1/dir2 rule2.md rule3.md
+project1/dir2 rule4.md rule3.md
 
 # duplicate rules per dir
 
@@ -17,6 +17,9 @@ project2/ rule2.md
 
 # adding rules to the dir
 
-project2/dir3 rule1.md
 project2/dir3 rule2.md
 project2/dir3 rule3.md
+
+# dir4
+
+project2/dir4 rule4.md

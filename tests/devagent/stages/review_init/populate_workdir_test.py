@@ -5,9 +5,11 @@ import subprocess
 
 from app.devagent.stages.review_init import populate_workdir
 from app.config import CONFIG
-from tests.devagent.mock.test_diffs import (
-    OPENHARMONY_ARCKOMPILER_RUNTIME_CORE_EMPTY,
-    OPENHARMONY_ARCKOMPILER_ETS_FRONTEND_EMPTY,
+from tests.devagent.mock.test_diffs.basic.arkcompiler_ets_frontend.empty import (
+    DIFF as FE_EMPTY,
+)
+from tests.devagent.mock.test_diffs.basic.arkcompiler_runtime_core.empty import (
+    DIFF as RT_EMPTY,
 )
 
 
@@ -24,13 +26,7 @@ class PopulateWorkdirTest(unittest.TestCase):
 
     def test_several_empty_diffs(self) -> None:
         with tempfile.TemporaryDirectory() as wd:
-            populate_workdir(
-                wd,
-                [
-                    OPENHARMONY_ARCKOMPILER_RUNTIME_CORE_EMPTY,
-                    OPENHARMONY_ARCKOMPILER_ETS_FRONTEND_EMPTY,
-                ],
-            )
+            populate_workdir(wd, [RT_EMPTY, FE_EMPTY])
 
             self._check_dev_rules_project(wd)
             self._check_devagent_toml(wd)
