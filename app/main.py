@@ -94,8 +94,8 @@ async def api_v1_devagent(
         ResponseApiV1Devagent: response. depends on the task_kind and action provided
     """
 
-    # if not authenticate_request(request):
-    #     raise fastapi.HTTPException(status_code=400, detail="Authentication failed")
+    if not authenticate_request(request):
+        raise fastapi.HTTPException(status_code=400, detail="Authentication failed")
 
     return await endpoint_api_v1_devagent(
         response=response,

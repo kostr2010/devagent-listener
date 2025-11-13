@@ -116,12 +116,14 @@ def _try_get_diff(token: str, url: str) -> Diff:
         head_sha=str(data.get("diff_refs", dict()).get("head_sha", "")),
     )
 
-    return Diff(
+    res = Diff(
         project=f"{owner}/{repo}",
         pr_number=int(pr_number),
         files=files,
         summary=summary,
     )
+
+    return res
 
 
 def _convert_to_standard_diff(api_response: dict[str, typing.Any]) -> list[DiffFile]:

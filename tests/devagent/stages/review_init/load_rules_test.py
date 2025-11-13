@@ -84,14 +84,14 @@ class LoadRulesTest(unittest.TestCase):
                     "nazarovkonstantin",
                     "arkcompiler_development_rules",
                     "REVIEW_RULES",
-                    "rule2.md",
+                    "rule3.md",
                 ),
                 os.path.join(
                     wd,
                     "nazarovkonstantin",
                     "arkcompiler_development_rules",
                     "REVIEW_RULES",
-                    "rule3.md",
+                    "rule4.md",
                 ),
             ],
             os.path.join(wd, "project2", "dir1"): [
@@ -118,13 +118,6 @@ class LoadRulesTest(unittest.TestCase):
                     "nazarovkonstantin",
                     "arkcompiler_development_rules",
                     "REVIEW_RULES",
-                    "rule1.md",
-                ),
-                os.path.join(
-                    wd,
-                    "nazarovkonstantin",
-                    "arkcompiler_development_rules",
-                    "REVIEW_RULES",
                     "rule2.md",
                 ),
                 os.path.join(
@@ -133,6 +126,15 @@ class LoadRulesTest(unittest.TestCase):
                     "arkcompiler_development_rules",
                     "REVIEW_RULES",
                     "rule3.md",
+                ),
+            ],
+            os.path.join(wd, "project2", "dir4"): [
+                os.path.join(
+                    wd,
+                    "nazarovkonstantin",
+                    "arkcompiler_development_rules",
+                    "REVIEW_RULES",
+                    "rule4.md",
                 ),
             ],
         }
