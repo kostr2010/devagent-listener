@@ -1,5 +1,4 @@
 import os.path
-import shutil
 import hashlib
 import asyncio
 import tempfile
@@ -12,9 +11,15 @@ from app.config import CONFIG
 from app.redis.redis import init_async_redis_conn
 from app.gitcode.get_diff import get_diff, Diff
 from app.utils.path import abspath_join
+from app.patch.analyzer import PatchAnalyzer
+from app.redis.models import (
+    task_info_project_revision_key,
+    task_info_patch_context_key,
+    task_info_patch_content_key,
+)
 
 # project_root, patch_path, rule_path
-DevagentTask = tuple[str, str, str]
+DevagentTask = tuple[str, str, str, str]
 
 
 ARKCOMPILER_DEVELOPMENT_RULES: tuple[str, str] = (
@@ -63,25 +68,35 @@ def load_rules(wd: str) -> dict[str, list[str]]:
 def prepare_tasks(
     task_id: str, wd: str, rules: dict[str, list[str]], diffs: list[Diff]
 ) -> list[DevagentTask]:
-    rules_to_diffs = _map_applicable_rules_to_diffs(wd, rules, diffs)
-
     tasks = list[DevagentTask]()
 
-    emitted_diffs = dict[str, str]()
+    for diff in diffs:
+        project = diff.project
+        project_root = os.path.abspath(os.path.join(wd, project))
 
-    for project_root, repo_rules_to_diffs in rules_to_diffs.items():
-        assert os.path.exists(
-            project_root
-        ), f"Project root {project_root} does not exist"
-        for rule, diff in repo_rules_to_diffs.items():
-            diff_hash = _diff_hash(diff)
+        mapping = _map_applicable_rules_to_diffs(wd, rules, diff)
+
+        emitted_diffs = dict[str, str]()
+        patch_contexts = dict[str, str]()
+
+        for rule, rule_diff in mapping.items():
+            diff_hash = _diff_hash(rule_diff)
             existing_patch = emitted_diffs.get(diff_hash, None)
             if existing_patch:
                 patch = existing_patch
             else:
-                patch = _emit_patch(task_id, wd, diff)
+                patch = _emit_content(wd, ".content.d", task_id, rule_diff)
                 emitted_diffs.update({diff_hash: patch})
-            tasks.append((project_root, patch, rule))
+
+            patch_context = patch_contexts.get(patch, None)
+            if patch_context:
+                context = patch_context
+            else:
+                pa = PatchAnalyzer(patch)
+                patch_summary = pa.verboseTestSummary()
+                context = _emit_content(wd, ".context.d", task_id, patch_summary)
+                patch_contexts.update({patch: context})
+            tasks.append((project_root, patch, rule, context))
 
     return tasks
 
@@ -89,44 +104,46 @@ def prepare_tasks(
 def store_task_info_to_redis(task_id: str, wd: str, tasks: list[DevagentTask]) -> None:
     task_info = dict()
 
+    task_info.update({"task_id": task_id})
+
     ark_dev_rules_root = _arkcompiler_development_rules_root(wd)
-    task_info.update(
-        {
-            "rev_nazarovkonstantin/arkcompiler_development_rules": _get_revision(
-                ark_dev_rules_root
-            )
-        }
+    ark_dev_rules_rev = _get_revision(ark_dev_rules_root)
+    ark_dev_rules_rev_key = task_info_project_revision_key(
+        "nazarovkonstantin/arkcompiler_development_rules"
     )
+    task_info.update({ark_dev_rules_rev_key: ark_dev_rules_rev})
 
-    task_info.update({"rev_egavrin/devagent": _get_revision("/devagent")})
-
-    unique_patches = set()
-    unique_projects = set()
+    devagent_root = "/devagent"
+    devagent_rev = _get_revision(devagent_root)
+    devagent_rev_key = task_info_project_revision_key("egavrin/devagent")
+    task_info.update({devagent_rev_key: devagent_rev})
 
     for task in tasks:
-        project_root, patch_path, rule_path = task
-        unique_projects.add(project_root)
-        unique_patches.add(patch_path)
-        rule_name = os.path.splitext(os.path.basename(rule_path))[0]
+        project_root, patch_path, rule_path, context_path = task
+
+        # project name is the relative path from wd to project root
+        project_name = os.path.relpath(project_root, wd)
+        project_rev_key = task_info_project_revision_key(project_name)
+        if not (project_rev_key in task_info):
+            task_info.update({project_rev_key: _get_revision(project_root)})
+
+        # patch_name is a basename of the patch
         patch_name = os.path.basename(patch_path)
+        patch_content_key = task_info_patch_content_key(patch_name)
+        if not (patch_content_key in task_info):
+            p = open(patch_path)
+            task_info.update({patch_content_key: p.read()})
+            p.close()
+
+        patch_context_key = task_info_patch_context_key(patch_name)
+        if not (patch_context_key in task_info):
+            c = open(context_path)
+            task_info.update({patch_context_key: c.read()})
+            c.close()
+
+        # rule name is the file name of the rule without file extension
+        rule_name = os.path.splitext(os.path.basename(rule_path))[0]
         task_info.update({rule_name: patch_name})
-
-    for patch in unique_patches:
-        patch_content = open(patch).read()
-        patch_name = os.path.basename(patch)
-        task_info.update({patch_name: patch_content})
-
-    task_info.update(
-        {
-            # last 2 folders of the path == project
-            f"rev_{os.sep.join(os.path.normpath(project_path).split(os.sep)[-2:])}": _get_revision(
-                project_path
-            )
-            for project_path in unique_projects
-        }
-    )
-
-    task_info.update({"task_id": task_id})
 
     conn = init_async_redis_conn(CONFIG.REDIS_LISTENER_DB)
 
@@ -143,26 +160,30 @@ def store_task_info_to_redis(task_id: str, wd: str, tasks: list[DevagentTask]) -
 
 
 def _map_applicable_rules_to_diffs(
-    wd: str, rules: dict[str, list[str]], diffs: list[Diff]
-) -> dict[str, dict[str, str]]:
-    mapping = dict[str, dict[str, str]]()
+    wd: str, rules: dict[str, list[str]], diff: Diff
+) -> dict[str, str]:
+    mapping = dict[str, str]()
 
-    for diff in diffs:
-        project_root = abspath_join(wd, f"{diff.project}")
-        combined_diff = _combine_diff(diff)
+    combined_diff = _combine_diff(diff)
 
-        applicable_rules = set[str]()
-        for file in diff.files:
-            diff_file_abspath = abspath_join(project_root, file.file)
-            for rule_dir, dir_rules in rules.items():
-                if rule_dir == os.path.commonpath([rule_dir, diff_file_abspath]):
-                    applicable_rules.update(dir_rules)
+    applicable_rules = _get_relevant_rules(wd, rules, diff)
 
-        mapping.update(
-            {project_root: {rule: combined_diff for rule in applicable_rules}}
-        )
+    mapping.update({rule: combined_diff for rule in applicable_rules})
 
     return mapping
+
+
+def _get_relevant_rules(wd: str, rules: dict[str, list[str]], diff: Diff) -> set[str]:
+    applicable_rules = set[str]()
+
+    project_root = abspath_join(wd, diff.project)
+    for file in diff.files:
+        diff_file_abspath = abspath_join(project_root, file.file)
+        for rule_dir, dir_rules in rules.items():
+            if rule_dir == os.path.commonpath([rule_dir, diff_file_abspath]):
+                applicable_rules.update(dir_rules)
+
+    return applicable_rules
 
 
 def _combine_diff(diff: Diff) -> str:
@@ -191,21 +212,19 @@ def _diff_hash(diff: str) -> str:
     return hashlib.sha256(diff.encode()).hexdigest()
 
 
-def _emit_patch(task_id: str, wd: str, diff: str) -> str:
-    patches_dir = abspath_join(wd, ".patches.d")
-    os.makedirs(patches_dir, exist_ok=True)
-    assert os.path.exists(patches_dir), f"Patches dir {patches_dir} does not exist"
+def _emit_content(wd: str, subdir: str, task_id: str, content: str) -> str:
+    dir = abspath_join(wd, subdir)
+    os.makedirs(dir, exist_ok=True)
+    assert os.path.exists(dir), f"Created dir {dir} does not exist"
 
-    temp = tempfile.NamedTemporaryFile(
-        prefix=f"patch_{task_id}_", dir=patches_dir, delete=False
-    )
-    temp.write(diff.encode("utf-8"))
-    patch_path = temp.name
+    temp = tempfile.NamedTemporaryFile(prefix=f"{task_id}_", dir=dir, delete=False)
+    temp.write(content.encode("utf-8"))
+    path = temp.name
     temp.close()
 
-    assert os.path.exists(patch_path), f"Patch {patch_path} does not exist"
+    assert os.path.exists(path), f"Emitted file {path} does not exist"
 
-    return patch_path
+    return path
 
 
 def _load_rules_from_config(cfg: str) -> dict[str, set[str]]:

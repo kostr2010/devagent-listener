@@ -54,10 +54,21 @@ def worker_get_range(n_tasks: int, group_idx: int, group_size: int) -> tuple[int
     return start_idx, end_idx
 
 
-def review_patch(repo_root: str, patch_path: str, rule_path: str) -> ReviewPatchResult:
+def review_patch(
+    repo_root: str, patch_path: str, rule_path: str, context: str
+) -> ReviewPatchResult:
     project = os.sep.join(os.path.normpath(repo_root).split(os.sep)[-2:])
 
-    cmd = ["devagent", "review", "--json", "--rule", rule_path, patch_path]
+    cmd = [
+        "devagent",
+        "--context",
+        context,
+        "review",
+        "--json",
+        "--rule",
+        rule_path,
+        patch_path,
+    ]
 
     print(f"Started devagent:\ncwd={repo_root}\ncmd={' '.join(cmd)}")
 

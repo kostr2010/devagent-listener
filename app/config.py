@@ -22,6 +22,9 @@ class ListenerConfig(pydantic_settings.BaseSettings):
     EXPIRY_TASK_INFO: int
     EXPIRY_DEVAGENT_WORKER: int
     SECRET_KEY: str
+    PGADMIN_DEFAULT_EMAIL: str
+    PGADMIN_DEFAULT_PASSWORD: str
+    PGADMIN_PORT: int
 
     class Config:
         env_file = "./.env"

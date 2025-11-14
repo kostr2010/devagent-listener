@@ -136,11 +136,13 @@ def _review_patches(
     results = list()
 
     for task in tasks:
-        repo_root, patch_path, rule_path = task
+        repo_root, patch_path, rule_path, context = task
         patch_review_result = None
 
         try:
-            patch_review_result = review_patch(repo_root, patch_path, rule_path)
+            patch_review_result = review_patch(
+                repo_root, patch_path, rule_path, context
+            )
         except Exception:
             raise celery.exceptions.TaskError(_exception_message(log_tag))
 

@@ -35,6 +35,22 @@ Shortuct to run all checks is always the following:
 make tests_full
 ```
 
+## Send test requests
+
+Fox ease of request sending, there are dedicated scripts for each possible request in `scripts` directory.
+
+NOTE: to run them, you should first do
+
+```bash
+make venv
+```
+
+Then execute script using `.venv/bin/python`, like this:
+
+```bash
+.venv/bin/python ./scripts/<script>.py [args]
+```
+
 ## Run
 
 First, edit `.env` according to your desired values. Value for `REDIS_HOSTNAME` and `POSTGRES_HOSTNAME` can be left empty for now
