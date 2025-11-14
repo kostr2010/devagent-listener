@@ -93,7 +93,10 @@ def prepare_tasks(
                 context = patch_context
             else:
                 pa = PatchAnalyzer(patch)
-                patch_summary = pa.verboseTestSummary()
+                if pa.analyze():
+                    patch_summary = pa.verboseTestSummary()
+                else:
+                    patch_summary = ""
                 context = _emit_content(wd, ".context.d", task_id, patch_summary)
                 patch_contexts.update({patch: context})
             tasks.append((project_root, patch, rule, context))
