@@ -1,1 +1,2 @@
 - [ ] TESTS
+- [ ] infrastructure for internet outage scenario

@@ -123,7 +123,9 @@ def review_wrapup(
 def _review_patches(
     self: celery.Task, tasks: list[DevagentTask], group_idx: int, group_size: int
 ) -> list[ReviewPatchResult]:
-    log_tag = f"[{self.request.root_id}] -> [{self.request.id}]"
+    log_tag = (
+        f"[{self.request.root_id}] -> [{self.request.parent_id}] -> [{self.request.id}]"
+    )
 
     try:
         start_idx, end_idx = worker_get_range(len(tasks), group_idx, group_size)

@@ -148,7 +148,7 @@ async def _store_errors_to_postgres(
                 rule = error.rule
                 message = error.message
                 patch_name = task_info[rule]
-                patch_content_key = task_info_patch_context_key(patch_name)
+                patch_content_key = task_info_patch_content_key(patch_name)
                 patch_content = task_info[patch_content_key]
                 patch_context_key = task_info_patch_context_key(patch_name)
                 patch_context = task_info[patch_context_key]
