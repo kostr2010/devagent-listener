@@ -23,12 +23,8 @@ def _get_wd(wd_name: str) -> str:
 
 class ProcessReviewResultTest(unittest.TestCase):
     def test_invalid_review_patch_result(self) -> None:
-        wd = _get_wd("basic")
-        rules = load_rules(wd)
-
         with self.assertRaises(AssertionError) as e:
             process_review_result(
-                rules,
                 [
                     [
                         ReviewPatchResult(
@@ -46,26 +42,22 @@ class ProcessReviewResultTest(unittest.TestCase):
         )
 
     def test_basic(self) -> None:
-        wd = _get_wd("basic")
-        rules = load_rules(wd)
-
-        res = process_review_result(rules, list())
+        res = process_review_result(list())
         res_dict = res.model_dump()
         ans: dict[str, typing.Any] = {"errors": dict(), "results": dict()}
         self.assertDictEqual(ans, res_dict)
 
-        res = process_review_result(rules, [list()])
+        res = process_review_result([list()])
         res_dict = res.model_dump()
         ans = {"errors": dict(), "results": dict()}
         self.assertDictEqual(ans, res_dict)
 
-        res = process_review_result(rules, [list(), list(), list()])
+        res = process_review_result([list(), list(), list()])
         res_dict = res.model_dump()
         ans = {"errors": dict(), "results": dict()}
         self.assertDictEqual(ans, res_dict)
 
         res = process_review_result(
-            rules,
             [
                 list(),
                 [
@@ -86,7 +78,6 @@ class ProcessReviewResultTest(unittest.TestCase):
         self.assertDictEqual(ans, res_dict)
 
         res = process_review_result(
-            rules,
             [
                 list(),
                 [
@@ -114,16 +105,24 @@ class ProcessReviewResultTest(unittest.TestCase):
         res_dict = res.model_dump()
         ans = {
             "errors": dict(),
-            "results": {"project1": list()},
+            "results": {
+                "project1": [
+                    {
+                        "file": "f",
+                        "line": 1,
+                        "severity": "s",
+                        "rule": "r",
+                        "message": "m",
+                        "change_type": "ct",
+                        "code_snippet": "cs",
+                    }
+                ]
+            },
         }
         self.assertDictEqual(ans, res_dict)
 
     def test_basic1(self) -> None:
-        wd = _get_wd("basic1")
-        rules = load_rules(wd)
-
         res = process_review_result(
-            rules,
             [
                 list(),
                 [
@@ -144,10 +143,8 @@ class ProcessReviewResultTest(unittest.TestCase):
         self.assertDictEqual(ans, res_dict)
 
         res = process_review_result(
-            rules,
             [
                 [
-                    # keep
                     ReviewPatchResult(
                         project="project1",
                         error=None,
@@ -165,7 +162,6 @@ class ProcessReviewResultTest(unittest.TestCase):
                             ]
                         ),
                     ),
-                    # discard, rule does not apply
                     ReviewPatchResult(
                         project="project1",
                         error=None,
@@ -185,7 +181,6 @@ class ProcessReviewResultTest(unittest.TestCase):
                     ),
                 ],
                 [
-                    # discard, rule does not apply
                     ReviewPatchResult(
                         project="project1",
                         error=None,
@@ -205,7 +200,6 @@ class ProcessReviewResultTest(unittest.TestCase):
                     )
                 ],
                 [
-                    # keep
                     ReviewPatchResult(
                         project="project1",
                         error=None,
@@ -233,6 +227,24 @@ class ProcessReviewResultTest(unittest.TestCase):
                 "project1": [
                     {
                         "file": "dir1/file",
+                        "line": 1,
+                        "severity": "error",
+                        "rule": "rule1",
+                        "message": "msg",
+                        "change_type": "ct",
+                        "code_snippet": "cs",
+                    },
+                    {
+                        "file": "dir1/file",
+                        "line": 1,
+                        "severity": "error",
+                        "rule": "rule2",
+                        "message": "msg",
+                        "change_type": "ct",
+                        "code_snippet": "cs",
+                    },
+                    {
+                        "file": "file1",
                         "line": 1,
                         "severity": "error",
                         "rule": "rule1",

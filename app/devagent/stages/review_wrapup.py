@@ -9,7 +9,6 @@ from app.redis.redis import init_async_redis_conn
 from app.postgres.models import Error
 from app.postgres.infrastructure import save_patch_if_does_not_exist
 from app.postgres.database import SQL_SESSION
-from app.utils.path import abspath_join
 from app.devagent.stages.review_patches import (
     DevagentError,
     DevagentViolation,
@@ -46,7 +45,7 @@ def clean_workdir(wd: str) -> None:
 
 
 def process_review_result(
-    rules: dict[str, list[str]], devagent_review: list[list[ReviewPatchResult]]
+    devagent_review: list[list[ReviewPatchResult]],
 ) -> ProcessedReview:
     results = dict[str, list[DevagentViolation]]()
     errors = dict[str, list[DevagentError]]()
@@ -77,49 +76,12 @@ def process_review_result(
                 f"review {review} does not have neither `error`, nor `result`"
             )
 
-    filtered_results: dict[str, list[DevagentViolation]] = {
-        project: list(
-            filter(
-                lambda violation: _is_alarm_applicable(rules, project, violation),
-                violations,
-            )
-        )
-        for project, violations in results.items()
-    }
-
-    return ProcessedReview(errors=errors, results=filtered_results)
+    return ProcessedReview(errors=errors, results=results)
 
 
 ###########
 # private #
 ###########
-
-
-def _is_alarm_applicable(
-    rules: dict[str, list[str]], project: str, violation: DevagentViolation
-) -> bool:
-    alarm_rule = violation.rule
-    alarm_file = violation.file
-
-    for dir, dir_rules in rules.items():
-        if project not in dir:
-            continue
-
-        project_root = abspath_join(dir.split(project)[0], project)
-        assert os.path.exists(
-            project_root
-        ), f"Project root {project_root} does not exist"
-
-        alarm_file_abspath = abspath_join(project_root, alarm_file)
-
-        if dir != os.path.commonpath([dir, alarm_file_abspath]):
-            continue
-
-        for rule in dir_rules:
-            if alarm_rule in rule:
-                return True
-
-    return False
 
 
 async def _store_errors_to_postgres(
@@ -148,7 +110,7 @@ async def _store_errors_to_postgres(
                 rule = error.rule
                 message = error.message
                 patch_name = task_info[rule]
-                patch_content_key = task_info_patch_context_key(patch_name)
+                patch_content_key = task_info_patch_content_key(patch_name)
                 patch_content = task_info[patch_content_key]
                 patch_context_key = task_info_patch_context_key(patch_name)
                 patch_context = task_info[patch_context_key]

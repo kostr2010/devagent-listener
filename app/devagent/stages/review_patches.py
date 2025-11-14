@@ -1,8 +1,9 @@
 import os.path
-import json
 import subprocess
-import jsonschema
 import pydantic
+
+
+from app.devagent.stages.review_init import DevagentTask
 
 
 class DevagentError(pydantic.BaseModel):
@@ -97,3 +98,41 @@ def review_patch(
             devagent_result.stdout.decode("utf-8")
         ),
     )
+
+
+def filter_violations(res: ReviewPatchResult, task: DevagentTask) -> ReviewPatchResult:
+    if res.result == None:
+        return res
+
+    filtered_violations = [
+        violation
+        for violation in res.result.violations
+        if _is_violation_valid(violation, task)
+    ]
+
+    return ReviewPatchResult(
+        project=res.project,
+        error=res.error,
+        result=DevagentReview(violations=filtered_violations),
+    )
+
+
+###########
+# private #
+###########
+
+
+def _is_violation_valid(violation: DevagentViolation, task: DevagentTask) -> bool:
+    alarm_rule = violation.rule
+
+    if alarm_rule not in task.rule_path:
+        return False
+
+    alarm_file = violation.file
+    alarm_file_path = os.path.join(task.project, alarm_file)
+
+    for dir in task.rule_dirs:
+        if dir == os.path.commonpath([dir, alarm_file_path]):
+            return True
+
+    return False

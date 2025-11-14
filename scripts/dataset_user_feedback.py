@@ -20,6 +20,9 @@ def code_review_get() -> None:
 
     response = devagent_request("api/v1/devagent", query_params)
 
+    if response == None:
+        return
+
     model = Response(**response)
 
     print(model.model_dump_json())

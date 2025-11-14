@@ -1,1 +1,6 @@
 - [ ] TESTS
+- [ ] infrastructure for internet outage scenario
+- [ ] test for review_patches_filter_violations:
+  - invalid rule
+  - invalid_dir
+  - valid violation

@@ -4,6 +4,7 @@ import celery.exceptions  # type: ignore
 import traceback
 import tempfile
 import typing
+import os
 
 from app.celery.celery import celery_instance
 from app.config import CONFIG
@@ -17,6 +18,7 @@ from app.devagent.stages.review_init import (
     DevagentTask,
 )
 from app.devagent.stages.review_patches import (
+    filter_violations,
     review_patch,
     worker_get_range,
     ReviewPatchResult,
@@ -40,13 +42,11 @@ def review_init(self: celery.Task, urls: list[str]) -> typing.Any:
     task_id = self.request.id
     log_tag = f"[{task_id}]"
 
-    wd = None
     try:
         wd = tempfile.mkdtemp()
     except Exception:
         raise celery.exceptions.TaskError(_exception_message(log_tag))
 
-    diffs = None
     try:
         diffs = get_diffs(urls)
     except Exception:
@@ -61,7 +61,6 @@ def review_init(self: celery.Task, urls: list[str]) -> typing.Any:
     else:
         print(f"{log_tag} populated workdir {wd}")
 
-    rules = None
     try:
         rules = load_rules(wd)
     except Exception:
@@ -69,7 +68,6 @@ def review_init(self: celery.Task, urls: list[str]) -> typing.Any:
     else:
         print(f"{log_tag} loaded rules {rules}")
 
-    tasks = None
     try:
         tasks = prepare_tasks(task_id, wd, rules, diffs)
     except Exception:
@@ -84,9 +82,11 @@ def review_init(self: celery.Task, urls: list[str]) -> typing.Any:
     else:
         print(f"{log_tag} stored task info to redis")
 
+    untyped_tasks = [task.model_dump() for task in tasks]
+
     return celery.chord(
         [
-            review_patches.s(tasks, i, DEVAGENT_REVIEW_GROUP_SIZE)
+            review_patches.s(untyped_tasks, i, DEVAGENT_REVIEW_GROUP_SIZE)
             for i in range(DEVAGENT_REVIEW_GROUP_SIZE)
         ],
     )(review_wrapup.s(wd))
@@ -94,9 +94,13 @@ def review_init(self: celery.Task, urls: list[str]) -> typing.Any:
 
 @devagent_worker.task(bind=True, track_started=True)  # type: ignore
 def review_patches(
-    self: celery.Task, tasks: list[DevagentTask], group_idx: int, group_size: int
+    self: celery.Task,
+    tasks: list[dict[str, typing.Any]],
+    group_idx: int,
+    group_size: int,
 ) -> list[dict[str, typing.Any]]:
-    res = _review_patches(self, tasks, group_idx, group_size)
+    validated_tasks = [DevagentTask.model_validate(item) for item in tasks]
+    res = _review_patches(self, validated_tasks, group_idx, group_size)
     return [review.model_dump() for review in res]
 
 
@@ -123,7 +127,9 @@ def review_wrapup(
 def _review_patches(
     self: celery.Task, tasks: list[DevagentTask], group_idx: int, group_size: int
 ) -> list[ReviewPatchResult]:
-    log_tag = f"[{self.request.root_id}] -> [{self.request.id}]"
+    log_tag = (
+        f"[{self.request.root_id}] -> [{self.request.parent_id}] -> [{self.request.id}]"
+    )
 
     try:
         start_idx, end_idx = worker_get_range(len(tasks), group_idx, group_size)
@@ -134,21 +140,22 @@ def _review_patches(
         print(f"{log_tag} received {len(tasks)} tasks {tasks}")
 
     results = list()
-
     for task in tasks:
-        repo_root, patch_path, rule_path, context = task
-        patch_review_result = None
-
         try:
+            project_root = os.path.abspath(os.path.join(task.wd, task.project))
             patch_review_result = review_patch(
-                repo_root, patch_path, rule_path, context
+                project_root, task.patch_path, task.rule_path, task.context_path
             )
+            results.append(patch_review_result)
         except Exception:
             raise celery.exceptions.TaskError(_exception_message(log_tag))
 
-        results.append(patch_review_result)
+    try:
+        filtered_results = [filter_violations(result, task) for result in results]
+    except Exception:
+        raise celery.exceptions.TaskError(_exception_message(log_tag))
 
-    return results
+    return filtered_results
 
 
 # Since celery can not serialize pydantic models, do verification here
@@ -160,14 +167,7 @@ def _wrapup(
     log_tag = f"[{self.request.root_id}] -> [{self.request.id}]"
 
     try:
-        rules = load_rules(wd)
-    except Exception:
-        raise celery.exceptions.TaskError(_exception_message(log_tag))
-    else:
-        print(f"{log_tag} loaded rules {rules}")
-
-    try:
-        res = process_review_result(rules, review)
+        res = process_review_result(review)
     except Exception:
         raise celery.exceptions.TaskError(_exception_message(log_tag))
     else:

@@ -37,6 +37,9 @@ def user_feedback_set() -> None:
 
     response = devagent_request("api/v1/devagent", query_params)
 
+    if response == None:
+        return
+
     model = Response(**response)
 
     print(model.model_dump_json())
