@@ -25,6 +25,9 @@ class ListenerConfig(pydantic_settings.BaseSettings):
     PGADMIN_DEFAULT_EMAIL: str
     PGADMIN_DEFAULT_PASSWORD: str
     PGADMIN_PORT: int
+    NEXUS_USERNAME: str
+    NEXUS_PASSWORD: str
+    NEXUS_REPO_URL: str
 
     class Config:
         env_file = "./.env"

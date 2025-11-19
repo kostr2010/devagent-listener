@@ -10,6 +10,7 @@ import datetime
 
 from app.routes.api.v1.devagent.tasks.validation import validate_query_params
 from app.postgres.models import UserFeedback, Patch, Feedback
+from app.nexus.api import upload_file_to_nexus
 
 QUERY_PARAMS_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -77,9 +78,13 @@ async def action_user_feedback(
                     context = str(patch.context)
                 p.write(context)
         archive = os.path.join(
-            tempfile.mkdtemp(), f"feedback-{datetime.datetime.now().date()}"
+            tempfile.mkdtemp(),
+            f"user-feedback-{datetime.datetime.now().date()}-{int(datetime.datetime.now().timestamp())}",
         )
         shutil.make_archive(archive, "zip", wd, ".")
+        archive_url = upload_file_to_nexus(
+            f"{archive}.zip", os.path.basename(f"{archive}.zip")
+        )
     except fastapi.HTTPException as httpe:
         raise httpe
     except Exception as e:
@@ -88,4 +93,4 @@ async def action_user_feedback(
             detail=f"[dataset_user_feedback] Exception {type(e)} occured during handling of task dataset user_feedback: {str(e)}",
         )
     else:
-        return Response(archive=f"{archive}.zip")
+        return Response(archive=archive_url)

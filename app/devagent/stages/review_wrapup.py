@@ -1,6 +1,5 @@
 import shutil
 import asyncio
-import os.path
 import pydantic
 
 from app.routes.api.v1.devagent.tasks.task_info.actions.get import action_get
