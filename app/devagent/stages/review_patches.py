@@ -2,7 +2,6 @@ import os.path
 import subprocess
 import pydantic
 
-
 from app.devagent.stages.review_init import DevagentTask
 
 

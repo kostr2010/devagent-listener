@@ -79,8 +79,6 @@ def prepare_tasks(
     tasks = list[DevagentTask]()
 
     for diff in diffs:
-        project = diff.project
-
         mapping = _map_applicable_rules_to_diffs(rules, diff)
 
         emitted_diffs = dict[str, str]()
