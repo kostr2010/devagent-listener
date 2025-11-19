@@ -28,35 +28,18 @@ class LoadRulesTest(unittest.TestCase):
             load_rules(wd)
         self.assertTrue("No config file" in str(e.exception))
 
-    def test_no_rules_folder(self) -> None:
-        """load_rules throws an exception if no directory with rules exists in the wd"""
-        wd = _get_wd("no_rules_folder")
-        with self.assertRaises(AssertionError) as e:
-            load_rules(wd)
-        self.assertTrue("No rules dir" in str(e.exception))
-
     def test_non_existing_rule(self) -> None:
         """load_rules throws an exception if loaded rule does not exist"""
         wd = _get_wd("non_existing_rule_in_config")
         with self.assertRaises(AssertionError) as e:
             load_rules(wd)
-        self.assertTrue("No rule" in str(e.exception))
+        self.assertTrue("Sanity check failed for rule" in str(e.exception))
 
     def test_non_existing_dir(self) -> None:
         """load_rules filters out all directories that were not found in the source tree"""
         wd = _get_wd("non_existing_dir_in_config")
         rules = load_rules(wd)
-        ans = {
-            os.path.join(wd, "project1"): [
-                os.path.join(
-                    wd,
-                    "nazarovkonstantin",
-                    "arkcompiler_development_rules",
-                    "REVIEW_RULES",
-                    "rule2.md",
-                )
-            ],
-        }
+        ans = {"rule2.md": ["project1"]}
         self.assertDictEqual(rules, ans)
 
     def test_basic(self) -> None:
@@ -66,77 +49,15 @@ class LoadRulesTest(unittest.TestCase):
         self.assertDictEqual(rules, ans)
 
     def test_basic1(self) -> None:
+        """load_rules collapses subdirs for the same rule"""
         wd = _get_wd("basic1")
         rules = load_rules(wd)
+
         ans = {
-            os.path.join(wd, "project1", "dir1"): [
-                os.path.join(
-                    wd,
-                    "nazarovkonstantin",
-                    "arkcompiler_development_rules",
-                    "REVIEW_RULES",
-                    "rule1.md",
-                )
-            ],
-            os.path.join(wd, "project1", "dir2"): [
-                os.path.join(
-                    wd,
-                    "nazarovkonstantin",
-                    "arkcompiler_development_rules",
-                    "REVIEW_RULES",
-                    "rule3.md",
-                ),
-                os.path.join(
-                    wd,
-                    "nazarovkonstantin",
-                    "arkcompiler_development_rules",
-                    "REVIEW_RULES",
-                    "rule4.md",
-                ),
-            ],
-            os.path.join(wd, "project2", "dir1"): [
-                os.path.join(
-                    wd,
-                    "nazarovkonstantin",
-                    "arkcompiler_development_rules",
-                    "REVIEW_RULES",
-                    "rule1.md",
-                )
-            ],
-            os.path.join(wd, "project2"): [
-                os.path.join(
-                    wd,
-                    "nazarovkonstantin",
-                    "arkcompiler_development_rules",
-                    "REVIEW_RULES",
-                    "rule2.md",
-                )
-            ],
-            os.path.join(wd, "project2", "dir3"): [
-                os.path.join(
-                    wd,
-                    "nazarovkonstantin",
-                    "arkcompiler_development_rules",
-                    "REVIEW_RULES",
-                    "rule2.md",
-                ),
-                os.path.join(
-                    wd,
-                    "nazarovkonstantin",
-                    "arkcompiler_development_rules",
-                    "REVIEW_RULES",
-                    "rule3.md",
-                ),
-            ],
-            os.path.join(wd, "project2", "dir4"): [
-                os.path.join(
-                    wd,
-                    "nazarovkonstantin",
-                    "arkcompiler_development_rules",
-                    "REVIEW_RULES",
-                    "rule4.md",
-                ),
-            ],
+            "rule1.md": ["project1/dir1", "project2/dir1"],
+            "rule2.md": ["project2"],
+            "rule3.md": ["project1/dir2", "project2/dir3"],
+            "rule4.md": ["project1/dir2", "project2/dir4"],
         }
         self.assertDictEqual(rules, ans)
 

@@ -23,6 +23,9 @@ def task_info_get() -> None:
 
     response = devagent_request("api/v1/devagent", query_params)
 
+    if response == None:
+        return
+
     model = Response(**response)
 
     print(json.dumps(model))
