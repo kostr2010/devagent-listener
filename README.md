@@ -53,7 +53,7 @@ Then execute script using `.venv/bin/python`, like this:
 
 ## Run
 
-First, edit `.env` according to your desired values. Value for `REDIS_HOSTNAME` and `POSTGRES_HOSTNAME` can be left empty for now
+First, edit `.env` according to your desired values. Value for `REDIS_HOSTNAME` and `DB_HOSTNAME` can be left empty for now
 
 ```bash
 cp .env.example .env
@@ -72,7 +72,7 @@ Edit value for `REDIS_HOSTNAME` in `.env`. Correct value can be found like this:
 docker inspect devagent_listener_redis  | grep Gateway
 ```
 
-Edit value for `POSTGRES_HOSTNAME` in `.env`. Correct value can be found like this:
+Edit value for `DB_HOSTNAME` in `.env`. Correct value can be found like this:
 
 ```bash
 docker inspect devagent_listener_postgres  | grep Gateway

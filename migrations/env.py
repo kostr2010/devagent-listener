@@ -6,7 +6,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 import app.config
-import app.postgres.models
+import app.db.schemas.base
 
 from alembic import context
 
@@ -15,14 +15,15 @@ from alembic import context
 config = context.config
 
 
-PG_USER = app.config.CONFIG.POSTGRES_USER
-PG_PASS = app.config.CONFIG.POSTGRES_PASSWORD
-PG_HOST = app.config.CONFIG.POSTGRES_HOSTNAME
-PG_PORT = app.config.CONFIG.POSTGRES_PORT
-PG_DB = app.config.CONFIG.POSTGRES_DB
+DB_PROTOCOL = app.config.CONFIG.DB_PROTOCOL
+DB_USER = app.config.CONFIG.DB_USER
+DB_PASS = app.config.CONFIG.DB_PASSWORD
+DB_HOST = app.config.CONFIG.DB_HOSTNAME
+DB_PORT = app.config.CONFIG.DB_PORT
+DB_DB = app.config.CONFIG.DB_DB
 config.set_main_option(
     "sqlalchemy.url",
-    f"postgresql+asyncpg://{PG_USER}:{PG_PASS}@{PG_HOST}:{PG_PORT}/{PG_DB}",
+    f"{DB_PROTOCOL}://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_DB}",
 )
 
 
@@ -35,7 +36,7 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-target_metadata = app.postgres.models.SQL_BASE.metadata
+target_metadata = app.db.schemas.base.SQL_BASE.metadata
 
 
 # other values from the config, defined by the needs of env.py,

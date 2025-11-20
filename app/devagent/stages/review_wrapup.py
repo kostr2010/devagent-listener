@@ -5,9 +5,8 @@ import pydantic
 from app.routes.api.v1.devagent.tasks.task_info.actions.get import action_get
 from app.config import CONFIG
 from app.redis.redis import init_async_redis_conn
-from app.postgres.models import Error
-from app.postgres.infrastructure import save_patch_if_does_not_exist
-from app.postgres.database import SQL_SESSION
+from app.db.schemas.error import Error
+from app.db.async_db import AsyncConnection
 from app.devagent.stages.review_patches import (
     DevagentError,
     DevagentViolation,
@@ -87,9 +86,9 @@ async def _store_errors_to_postgres(
     task_id: str,
     errors: dict[str, list[DevagentError]],
 ) -> None:
-    conn = init_async_redis_conn(CONFIG.REDIS_LISTENER_DB)
-    task_info = await action_get(redis=conn, query_params={"task_id": task_id})
-    await conn.close()
+    redis_conn = init_async_redis_conn(CONFIG.REDIS_LISTENER_DB)
+    task_info = await action_get(redis=redis_conn, query_params={"task_id": task_id})
+    await redis_conn.close()
 
     ark_dev_rules_project = "nazarovkonstantin/arkcompiler_development_rules"
     ark_dev_rules_rev_key = task_info_project_revision_key(ark_dev_rules_project)
@@ -99,7 +98,16 @@ async def _store_errors_to_postgres(
     devagent_rev_key = task_info_project_revision_key(devagent_project)
     devagent_rev = task_info[devagent_rev_key]
 
-    async with SQL_SESSION() as postgres:
+    db_conn = AsyncConnection(
+        CONFIG.DB_PROTOCOL,
+        CONFIG.DB_HOSTNAME,
+        CONFIG.DB_PORT,
+        CONFIG.DB_USER,
+        CONFIG.DB_PASSWORD,
+        CONFIG.DB_DB,
+    )
+
+    async for db_session in db_conn.get_session():
         orm_errors = list[Error]()
 
         for project, repo_errors in errors.items():
@@ -114,8 +122,8 @@ async def _store_errors_to_postgres(
                 patch_context_key = task_info_patch_context_key(patch_name)
                 patch_context = task_info[patch_context_key]
 
-                await save_patch_if_does_not_exist(
-                    postgres, patch_name, patch_content, patch_context
+                await db_session.insert_patch_if_does_not_exist(
+                    patch_name, patch_content, patch_context
                 )
 
                 orm_error: Error = Error(
@@ -130,5 +138,4 @@ async def _store_errors_to_postgres(
 
                 orm_errors.append(orm_error)
 
-        postgres.add_all(orm_errors)
-        await postgres.commit()
+        await db_session.insert_errors(orm_errors)

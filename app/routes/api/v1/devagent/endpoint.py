@@ -1,7 +1,8 @@
 import fastapi
 import enum
-import sqlalchemy.ext.asyncio
 import redis.asyncio
+
+from app.db.async_db import AsyncSession
 
 from app.routes.api.v1.devagent.tasks.code_review.code_review import (
     code_review,
@@ -36,7 +37,7 @@ Response = (
 async def endpoint_api_v1_devagent(
     response: fastapi.Response,
     request: fastapi.Request,
-    postgres: sqlalchemy.ext.asyncio.AsyncSession,
+    db: AsyncSession,
     redis: redis.asyncio.Redis,
     task_kind: int,
     action: int,
@@ -50,7 +51,7 @@ async def endpoint_api_v1_devagent(
 
     if TaskKind.TASK_KIND_USER_FEEDBACK.value == task_kind:
         return await user_feedback(
-            postgres=postgres,
+            db=db,
             redis=redis,
             action=action,
             query_params=query_params,
@@ -60,9 +61,7 @@ async def endpoint_api_v1_devagent(
         return await task_info(redis=redis, action=action, query_params=query_params)
 
     if TaskKind.TASK_KIND_DATASET.value == task_kind:
-        return await dataset(
-            postgres=postgres, action=action, query_params=query_params
-        )
+        return await dataset(db=db, action=action, query_params=query_params)
 
     raise fastapi.HTTPException(
         status_code=500,

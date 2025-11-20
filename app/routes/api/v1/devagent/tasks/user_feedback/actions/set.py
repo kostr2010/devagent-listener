@@ -1,13 +1,12 @@
 import redis.asyncio
-import sqlalchemy.ext.asyncio
 import base64
 import zlib
 import fastapi
 import pydantic
 import typing
 
-from app.postgres.models import UserFeedback
-from app.postgres.infrastructure import save_patch_if_does_not_exist
+from app.db.async_db import AsyncSession
+from app.db.schemas.user_feedback import UserFeedback
 from app.routes.api.v1.devagent.tasks.validation import validate_query_params
 from app.routes.api.v1.devagent.tasks.task_info.actions.get import action_get
 from app.redis.models import (
@@ -46,7 +45,7 @@ class Response(pydantic.BaseModel):
 
 @validate_query_params(QUERY_PARAMS_SCHEMA)
 async def action_set(
-    postgres: sqlalchemy.ext.asyncio.AsyncSession,
+    db: AsyncSession,
     redis: redis.asyncio.Redis,
     query_params: dict[str, typing.Any],
 ) -> Response:
@@ -75,8 +74,8 @@ async def action_set(
         patch_context_key = task_info_patch_context_key(patch_name)
         patch_context = task_info[patch_context_key]
 
-        await save_patch_if_does_not_exist(
-            postgres, patch_name, patch_content, patch_context
+        await db.insert_patch_if_does_not_exist(
+            patch_name, patch_content, patch_context
         )
 
         feedback = query_params["feedback"]
@@ -92,9 +91,7 @@ async def action_set(
             line=int(line),
             feedback=int(feedback),
         )
-
-        postgres.add(orm_feedback)
-        await postgres.commit()
+        await db.insert_user_feebdack([orm_feedback])
     except fastapi.HTTPException as httpe:
         raise httpe
     except Exception as e:
