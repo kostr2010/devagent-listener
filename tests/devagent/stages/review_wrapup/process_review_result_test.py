@@ -1,24 +1,13 @@
 import unittest
 import typing
-import os
 
-
-from app.devagent.stages.review_init import load_rules
 from app.devagent.stages.review_patches import (
     DevagentViolation,
     DevagentError,
     DevagentReview,
     ReviewPatchResult,
 )
-from app.devagent.stages.review_wrapup import process_review_result, ProcessedReview
-
-
-def _get_wd(wd_name: str) -> str:
-    cur_dir = os.path.dirname(os.path.realpath(__file__))
-    wd = os.path.normpath(
-        os.path.join(cur_dir, "..", "..", "mock", "test_workdirs", wd_name)
-    )
-    return wd
+from app.devagent.stages.review_wrapup import process_review_result
 
 
 class ProcessReviewResultTest(unittest.TestCase):

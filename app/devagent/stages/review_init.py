@@ -6,6 +6,7 @@ import subprocess
 import git
 import time
 import pydantic
+import typing
 
 from app.routes.api.v1.devagent.tasks.task_info.actions.set import action_set
 from app.config import CONFIG
@@ -116,6 +117,25 @@ def prepare_tasks(
 
 
 def store_task_info_to_redis(task_id: str, wd: str, tasks: list[DevagentTask]) -> None:
+    task_info = _create_task_info(task_id, wd, tasks)
+
+    conn = init_async_redis_conn(CONFIG.REDIS_LISTENER_DB)
+
+    asyncio.get_event_loop().run_until_complete(
+        action_set(redis=conn, query_params=task_info)
+    )
+
+    asyncio.get_event_loop().run_until_complete(conn.close())
+
+
+###########
+# private #
+###########
+
+
+def _create_task_info(
+    task_id: str, wd: str, tasks: list[DevagentTask]
+) -> dict[str, typing.Any]:
     task_info = dict()
 
     task_info.update({"task_id": task_id})
@@ -123,7 +143,7 @@ def store_task_info_to_redis(task_id: str, wd: str, tasks: list[DevagentTask]) -
     ark_dev_rules_root = _arkcompiler_development_rules_root(wd)
     ark_dev_rules_rev = _get_revision(ark_dev_rules_root)
     ark_dev_rules_rev_key = task_info_project_revision_key(
-        "nazarovkonstantin/arkcompiler_development_rules"
+        ARKCOMPILER_DEVELOPMENT_RULES[0]
     )
     task_info.update({ark_dev_rules_rev_key: ark_dev_rules_rev})
 
@@ -156,26 +176,15 @@ def store_task_info_to_redis(task_id: str, wd: str, tasks: list[DevagentTask]) -
         rule_name = os.path.splitext(os.path.basename(task.rule_path))[0]
         task_info.update({rule_name: patch_name})
 
-    conn = init_async_redis_conn(CONFIG.REDIS_LISTENER_DB)
-
-    asyncio.get_event_loop().run_until_complete(
-        action_set(redis=conn, query_params=task_info)
-    )
-
-    asyncio.get_event_loop().run_until_complete(conn.close())
-
-
-###########
-# private #
-###########
+    return task_info
 
 
 def _generate_patch_context(patch_path: str) -> str:
     pa = PatchAnalyzer(patch_path)
+    patch_summary = ""
     if pa.analyze():
-        patch_summary = pa.verboseTestSummary()
-    else:
-        patch_summary = ""
+        patch_summary += pa.verboseFrontEndSummary()
+        patch_summary += pa.verboseTestSummary()
     return patch_summary
 
 
