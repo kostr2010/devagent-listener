@@ -1,7 +1,8 @@
 import enum
 import fastapi
 import typing
-import sqlalchemy.ext.asyncio
+
+from app.db.async_db import AsyncSession
 
 from app.routes.api.v1.devagent.tasks.dataset.actions.errors import (
     action_errors,
@@ -22,14 +23,14 @@ Response = ErrorsResponse | UserFeedbackResponse
 
 
 async def dataset(
-    postgres: sqlalchemy.ext.asyncio.AsyncSession,
+    db: AsyncSession,
     action: int,
     query_params: dict[str, typing.Any],
 ) -> Response:
     """Create dataset from the information stored in db
 
     Args:
-        postgres (sqlalchemy.ext.asyncio.AsyncSession): postgres connection used to query database
+        postgres (AsyncSession): db connection used to query database
         action (int): Action required by the endpoint. Can be one of the `Action` enum
         query_params (dict[str, typing.Any]): Payload for the endpoint. Interpreted differently depending on the action
 
@@ -43,10 +44,10 @@ async def dataset(
     _validate_action(action)
 
     if Action.ACTION_ERRORS.value == action:
-        return await action_errors(postgres=postgres, query_params=query_params)
+        return await action_errors(db=db, query_params=query_params)
 
     if Action.ACTION_USER_FEEDBACK.value == action:
-        return await action_user_feedback(postgres=postgres, query_params=query_params)
+        return await action_user_feedback(db=db, query_params=query_params)
 
     raise fastapi.HTTPException(
         status_code=500,

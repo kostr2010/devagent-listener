@@ -1,9 +1,7 @@
 import sqlalchemy
-import sqlalchemy.orm
-import sqlalchemy.ext.declarative
 import enum
 
-SQL_BASE = sqlalchemy.ext.declarative.declarative_base()
+from app.db.schemas.base import SQL_BASE
 
 
 class Feedback(enum.IntEnum):
@@ -11,20 +9,6 @@ class Feedback(enum.IntEnum):
     TRUE_POSITIVE = 1
     FALSE_NEGATIE = 2
     TRUE_NEGATIE = 3
-
-
-class Patch(SQL_BASE):  # type: ignore
-    __tablename__ = "patches"
-
-    id = sqlalchemy.Column(
-        sqlalchemy.String,
-        primary_key=True,
-        nullable=False,
-        unique=True,
-        autoincrement=False,
-    )
-    content = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-    context = sqlalchemy.Column(sqlalchemy.String, nullable=True)
 
 
 class UserFeedback(SQL_BASE):  # type: ignore
@@ -50,20 +34,3 @@ class UserFeedback(SQL_BASE):  # type: ignore
         if not value in [e.value for e in Feedback]:
             raise ValueError(f"Invalid feedback value {value} for key {key}")
         return value
-
-
-class Error(SQL_BASE):  # type: ignore
-    __tablename__ = "errors"
-
-    id = sqlalchemy.Column(
-        sqlalchemy.Integer, primary_key=True, nullable=False, unique=True
-    )
-    rev_arkcompiler_development_rules = sqlalchemy.Column(
-        sqlalchemy.String, nullable=False
-    )
-    rev_devagent = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-    project = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-    rev_project = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-    patch = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-    rule = sqlalchemy.Column(sqlalchemy.String, nullable=False)
-    message = sqlalchemy.Column(sqlalchemy.String, nullable=False)

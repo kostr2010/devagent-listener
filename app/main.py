@@ -1,13 +1,11 @@
 import fastapi
 import contextlib
 import redis.asyncio
-import alembic.config
-import sqlalchemy.ext.asyncio
 import typing
 
-from app.postgres.database import SQL_SESSION, SQL_ENGINE
-from app.redis.redis import init_async_redis_conn
 from app.config import CONFIG
+from app.redis.redis import init_async_redis_conn
+from app.db.async_db import AsyncConnection, AsyncSession
 from app.auth.authentication import authenticate_request
 
 from app.routes.api.v1.devagent.endpoint import (
@@ -24,34 +22,36 @@ from app.routes.health.endpoint import (
 async def lifespan(app: fastapi.FastAPI):  # type: ignore
     print("Initializing redis connection")
     app.state.async_redis_conn = init_async_redis_conn(CONFIG.REDIS_LISTENER_DB)
-    print("Running postgres migrations")
-    await run_async_postgres_migrations()
-    print("Listening")
+    print("Initializing db connection")
+    app.state.async_db_conn = AsyncConnection(
+        CONFIG.DB_PROTOCOL,
+        CONFIG.DB_HOSTNAME,
+        CONFIG.DB_PORT,
+        CONFIG.DB_USER,
+        CONFIG.DB_PASSWORD,
+        CONFIG.DB_DB,
+    )
+    print("Running db migrations")
+    await app.state.async_db_conn.run_migrations()
+    print("Listening for requests")
     yield
     print("Closing redis connection")
     await app.state.async_redis_conn.close()
+    print("Closing db connection")
+    await app.state.async_db_conn.close()
 
 
-def get_redis(request: fastapi.Request) -> redis.asyncio.Redis:
+def get_redis_connection(request: fastapi.Request) -> redis.asyncio.Redis:
     conn: redis.asyncio.Redis = request.app.state.async_redis_conn
     return conn
 
 
-async def get_postgres():  # type: ignore
-    async with SQL_SESSION() as session:
+async def get_db_session(
+    request: fastapi.Request,
+) -> typing.AsyncGenerator[AsyncSession, None]:
+    conn: AsyncConnection = request.app.state.async_db_conn
+    async for session in conn.get_session():
         yield session
-        await session.commit()
-
-
-def run_postgres_migrations(connection: sqlalchemy.Connection) -> None:
-    cfg = alembic.config.Config("alembic.ini")
-    cfg.attributes["connection"] = connection
-    alembic.command.upgrade(cfg, "head")
-
-
-async def run_async_postgres_migrations() -> None:
-    async with SQL_ENGINE.begin() as conn:
-        await conn.run_sync(run_postgres_migrations)
 
 
 listener = fastapi.FastAPI(debug=True, lifespan=lifespan)
@@ -77,18 +77,18 @@ async def api_v1_devagent(
     request: fastapi.Request,
     task_kind: typing.Annotated[int, fastapi.Query()],
     action: typing.Annotated[int, fastapi.Query()],
-    postgres: sqlalchemy.ext.asyncio.AsyncSession = fastapi.Depends(get_postgres),
-    redis: redis.asyncio.Redis = fastapi.Depends(get_redis),
+    db: typing.Annotated[AsyncSession, fastapi.Depends(get_db_session)],
+    redis: typing.Annotated[redis.asyncio.Redis, fastapi.Depends(get_redis_connection)],
 ) -> ResponseApiV1Devagent:
     """Entrypoint for the devagent related logic
 
     Args:
         response (fastapi.Response): response
         request (fastapi.Request): request
-        task_kind (typing.Annotated[int, fastapi.Query): task that needs to be performed by the endpoint
-        action (typing.Annotated[int, fastapi.Query): action that needs to be performed for the task
-        postgres (sqlalchemy.ext.asyncio.AsyncSession, optional): postgres connection. Defaults to fastapi.Depends(get_postgres).
-        redis (redis.asyncio.Redis, optional): redis connection. Defaults to fastapi.Depends(get_redis).
+        task_kind (typing.Annotated[int, fastapi.Query()]): task that needs to be performed by the endpoint
+        action (typing.Annotated[int, fastapi.Query()]): action that needs to be performed for the task
+        postgres (typing.Annotated[AsyncSession, fastapi.Depends(get_db_session)]): db connection
+        redis (typing.Annotated[redis.asyncio.Redis, fastapi.Depends(get_redis_connection)): redis connection
 
     Returns:
         ResponseApiV1Devagent: response. depends on the task_kind and action provided
@@ -100,7 +100,7 @@ async def api_v1_devagent(
     return await endpoint_api_v1_devagent(
         response=response,
         request=request,
-        postgres=postgres,
+        db=db,
         redis=redis,
         task_kind=task_kind,
         action=action,

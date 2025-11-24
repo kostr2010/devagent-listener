@@ -13,12 +13,13 @@ class ListenerConfig(pydantic_settings.BaseSettings):
     REDIS_PASSWORD: str
     REDIS_LISTENER_DB: int
     REDIS_DEVAGENT_DB: int
-    POSTGRES_PORT: int
-    POSTGRES_PASSWORD: str
-    POSTGRES_USER: str
-    POSTGRES_DB: str
-    POSTGRES_HOST: str
-    POSTGRES_HOSTNAME: str
+    DB_PROTOCOL: str
+    DB_PORT: int
+    DB_PASSWORD: str
+    DB_USER: str
+    DB_DB: str
+    DB_HOST: str
+    DB_HOSTNAME: str
     EXPIRY_TASK_INFO: int
     EXPIRY_DEVAGENT_WORKER: int
     SECRET_KEY: str

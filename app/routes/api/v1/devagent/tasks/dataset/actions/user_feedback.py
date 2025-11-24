@@ -1,5 +1,3 @@
-import sqlalchemy.ext.asyncio
-import sqlalchemy.future
 import os
 import fastapi
 import pydantic
@@ -8,8 +6,9 @@ import tempfile
 import shutil
 import datetime
 
+from app.db.async_db import AsyncSession
 from app.routes.api.v1.devagent.tasks.validation import validate_query_params
-from app.postgres.models import UserFeedback, Patch, Feedback
+from app.db.schemas.user_feedback import UserFeedback, Feedback
 from app.nexus.api import upload_file_to_nexus
 
 QUERY_PARAMS_SCHEMA = {
@@ -27,14 +26,13 @@ class Response(pydantic.BaseModel):
 
 @validate_query_params(QUERY_PARAMS_SCHEMA)
 async def action_user_feedback(
-    postgres: sqlalchemy.ext.asyncio.AsyncSession,
+    db: AsyncSession,
     query_params: dict[str, typing.Any],
 ) -> Response:
     try:
         wd = tempfile.mkdtemp()
 
-        query_res = await postgres.execute(sqlalchemy.future.select(UserFeedback))
-        user_feedback = query_res.scalars().all()
+        user_feedback = await db.select_user_feebdack(None)
 
         for feedback in user_feedback:
             feedback_wd = os.path.abspath(
@@ -57,13 +55,10 @@ async def action_user_feedback(
                 e.write(f"FILE={feedback.file}\n")
                 e.write(f"LINE={feedback.line}\n")
 
-            r = await postgres.execute(
-                sqlalchemy.future.select(Patch).where(Patch.id == feedback.patch)
-            )
-            patch = r.scalars().first()
+            patch = await db.get_patch(str(feedback.patch))
 
             if patch == None:
-                raise Exception(f"Could not get patch {feedback.patch} from the db")
+                raise Exception(f"No patch found with id {id} in the db")
 
             patch_file = os.path.join(feedback_wd, str(feedback.patch))
             with open(patch_file, "w") as p:
