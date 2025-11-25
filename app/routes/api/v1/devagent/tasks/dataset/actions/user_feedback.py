@@ -1,34 +1,20 @@
 import os
 import fastapi
 import pydantic
-import typing
 import tempfile
 import shutil
 import datetime
 
 from app.db.async_db import AsyncSession
-from app.routes.api.v1.devagent.tasks.validation import validate_query_params
-from app.db.schemas.user_feedback import UserFeedback, Feedback
+from app.db.schemas.user_feedback import Feedback
 from app.nexus.api import upload_file_to_nexus
-
-QUERY_PARAMS_SCHEMA = {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "type": "object",
-    "properties": dict(),
-    "required": list(),
-    "additionalProperties": True,
-}
 
 
 class Response(pydantic.BaseModel):
     archive: str
 
 
-@validate_query_params(QUERY_PARAMS_SCHEMA)
-async def action_user_feedback(
-    db: AsyncSession,
-    query_params: dict[str, typing.Any],
-) -> Response:
+async def action_user_feedback(db: AsyncSession) -> Response:
     try:
         wd = tempfile.mkdtemp()
 

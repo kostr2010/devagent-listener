@@ -1,30 +1,31 @@
+import jsonschema
 import redis.asyncio
 import fastapi
 import pydantic
 import typing
 
 from app.config import CONFIG
-from app.routes.api.v1.devagent.tasks.validation import validate_query_params
-
-from app.redis.models import (
-    TASK_INFO_SCHEMA,
-    task_info_is_valid_key,
-)
-
-
-# To support other params in query_params
-QUERY_PARAMS_SCHEMA = TASK_INFO_SCHEMA.copy()
-QUERY_PARAMS_SCHEMA["additionalProperties"] = True
+from app.redis.models import TASK_INFO_SCHEMA, task_info_is_valid_key
 
 
 class Response(pydantic.BaseModel):
     pass
 
 
-@validate_query_params(QUERY_PARAMS_SCHEMA)
 async def action_set(
     redis: redis.asyncio.Redis, query_params: dict[str, typing.Any]
 ) -> Response:
+    try:
+        # FIXME: make pydantic model for redis TaskInfo and validate using validate_query_params
+        schema = TASK_INFO_SCHEMA.copy()
+        schema["additionalProperties"] = True
+        jsonschema.validate(query_params, schema)
+    except Exception as e:
+        raise fastapi.HTTPException(
+            status_code=400,
+            detail=f"Error while validating action_set's query_params : {str(e)}",
+        )
+
     try:
         task_id = str(query_params["task_id"])
         task_info = dict(

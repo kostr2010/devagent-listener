@@ -9,18 +9,9 @@ from app.devagent.stages.review_patches import ReviewPatchResult
 from app.devagent.stages.review_wrapup import ProcessedReview, process_review_result
 from app.routes.api.v1.devagent.tasks.validation import validate_query_params
 
-QUERY_PARAMS_SCHEMA = {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "type": "object",
-    "properties": {
-        "payload": {
-            "description": "Task id of the review",
-            "type": "string",
-        },
-    },
-    "required": ["payload"],
-    "additionalProperties": True,
-}
+
+class QueryParams(pydantic.BaseModel):
+    payload: str
 
 
 class TaskStatus(enum.IntEnum):
@@ -35,14 +26,10 @@ class Response(pydantic.BaseModel):
     task_result: None | str | ProcessedReview
 
 
-@validate_query_params(QUERY_PARAMS_SCHEMA)
-def action_get(
-    query_params: dict[str, typing.Any],
-) -> Response:
+@validate_query_params(QueryParams)
+def action_get(query_params: QueryParams) -> Response:
     try:
-        payload = query_params["payload"]
-
-        parent_task = devagent_worker.AsyncResult(payload)
+        parent_task = devagent_worker.AsyncResult(query_params.payload)
         parent_task_status, parent_task_result = _get_task_status_and_result(
             parent_task
         )
@@ -81,7 +68,10 @@ def action_get(
             )
             if review_task_status == TaskStatus.TASK_STATUS_SUCCESSFUL:
                 review_results.append(
-                    [ReviewPatchResult(**res) for res in review_task_result]
+                    [
+                        ReviewPatchResult.model_validate(res)
+                        for res in review_task_result
+                    ]
                 )
 
         return Response(
@@ -94,7 +84,7 @@ def action_get(
     except Exception as e:
         raise fastapi.HTTPException(
             status_code=500,
-            detail=f"[code_review_get] Exception {type(e)} occured during handling payload {query_params['payload']}: {str(e)}",
+            detail=f"[code_review_get] Exception {type(e)} occured during handling payload {query_params.payload}: {str(e)}",
         )
 
 

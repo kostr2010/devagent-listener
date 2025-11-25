@@ -6,9 +6,11 @@ import typing
 
 RT = typing.TypeVar("RT")  # return type
 
+import pydantic
+
 
 def validate_query_params(
-    schema: dict[str, typing.Any],
+    model: type[pydantic.BaseModel],
 ) -> typing.Callable[[typing.Callable[..., RT]], typing.Callable[..., RT]]:
     """Decorator for the query_params validation
 
@@ -25,12 +27,15 @@ def validate_query_params(
             @functools.wraps(func)
             async def wrapper(*args: typing.Any, **kwargs: typing.Any) -> RT:
                 try:
-                    jsonschema.validate(kwargs["query_params"], schema)
+                    validated_query_params = model.model_validate(
+                        kwargs["query_params"]
+                    )
                 except Exception as e:
                     raise fastapi.HTTPException(
                         status_code=400,
                         detail=f"Error while validating {func.__name__}'s query_params : {str(e)}",
                     )
+                kwargs["query_params"] = validated_query_params
                 res: RT = await func(*args, **kwargs)
                 return res
 
@@ -39,13 +44,17 @@ def validate_query_params(
             @functools.wraps(func)
             def wrapper(*args: typing.Any, **kwargs: typing.Any) -> RT:
                 try:
-                    jsonschema.validate(kwargs["query_params"], schema)
+                    validated_query_params = model.model_validate(
+                        kwargs["query_params"]
+                    )
                 except Exception as e:
                     raise fastapi.HTTPException(
                         status_code=400,
                         detail=f"Error while validating {func.__name__}'s query_params : {str(e)}",
                     )
-                return func(*args, **kwargs)
+                kwargs["query_params"] = validated_query_params
+                res: RT = func(*args, **kwargs)
+                return res
 
         return wrapper  # type: ignore
 
