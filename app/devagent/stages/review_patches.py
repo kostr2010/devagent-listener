@@ -78,6 +78,8 @@ def review_patch(
         cwd=repo_root,
     )
 
+    rule = os.path.splitext(os.path.basename(rule_path))[0]
+
     stderr = devagent_result.stderr.decode("utf-8")
     if len(stderr) > 0 and "Error" in stderr:
         return ReviewPatchResult(
@@ -85,17 +87,21 @@ def review_patch(
             error=DevagentError(
                 message=stderr,
                 patch=os.path.basename(patch_path),
-                rule=os.path.basename(rule_path),
+                rule=rule,
             ),
             result=None,
         )
 
+    result = DevagentReview.model_validate_json(devagent_result.stdout.decode("utf-8"))
+
+    # NOTE: fixup for LLM rule name hallucinations
+    for violation in result.violations:
+        violation.rule = rule
+
     return ReviewPatchResult(
         project=project,
         error=None,
-        result=DevagentReview.model_validate_json(
-            devagent_result.stdout.decode("utf-8")
-        ),
+        result=result,
     )
 
 

@@ -3,7 +3,6 @@ import base64
 import zlib
 import fastapi
 import pydantic
-import typing
 
 from app.db.async_db import AsyncSession
 from app.db.schemas.user_feedback import UserFeedback
@@ -15,45 +14,27 @@ from app.redis.models import (
     task_info_project_revision_key,
 )
 
-QUERY_PARAMS_SCHEMA = {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "title": "user_feedback_set query params schema",
-    "description": "Query params schema of user_feedback_set API",
-    "type": "object",
-    "properties": {
-        "task_id": {
-            "description": "task_id of the devagent review",
-            "type": "string",
-        },
-        "feedback": {
-            "description": "User feedback for the alarm",
-            "type": "string",
-        },
-        "data": {
-            "description": "base64-encrypted and compressed project:file:line:rule",
-            "type": "string",
-        },
-    },
-    "required": ["task_id", "feedback", "data"],
-    "additionalProperties": True,
-}
+
+class QueryParams(pydantic.BaseModel):
+    task_id: str
+    feedback: int
+    data: str
 
 
 class Response(pydantic.BaseModel):
-    pass
+    feedback_id: int
 
 
-@validate_query_params(QUERY_PARAMS_SCHEMA)
+@validate_query_params(QueryParams)
 async def action_set(
-    db: AsyncSession,
-    redis: redis.asyncio.Redis,
-    query_params: dict[str, typing.Any],
+    db: AsyncSession, redis: redis.asyncio.Redis, query_params: QueryParams
 ) -> Response:
     try:
-        data = query_params["data"]
-        project, file, line, rule = _decrypt_project_file_line_rule(data)
+        project, file, line, rule = _decrypt_project_file_line_rule(query_params.data)
 
-        task_info = await action_get(redis=redis, query_params=query_params)
+        task_info = await action_get(
+            redis=redis, query_params=query_params.model_dump()
+        )
 
         ark_dev_rules_project = "nazarovkonstantin/arkcompiler_development_rules"
         ark_dev_rules_rev_key = task_info_project_revision_key(ark_dev_rules_project)
@@ -78,8 +59,6 @@ async def action_set(
             patch_name, patch_content, patch_context
         )
 
-        feedback = query_params["feedback"]
-
         orm_feedback = UserFeedback(
             rev_arkcompiler_development_rules=ark_rev_rules_rev,
             rev_devagent=devagent_rev,
@@ -89,18 +68,19 @@ async def action_set(
             rule=rule,
             file=file,
             line=int(line),
-            feedback=int(feedback),
+            feedback=query_params.feedback,
         )
+
         await db.insert_user_feebdack([orm_feedback])
     except fastapi.HTTPException as httpe:
         raise httpe
     except Exception as e:
         raise fastapi.HTTPException(
             status_code=500,
-            detail=f"[user_feedback_set] Exception {type(e)} occured during handling of task {query_params['task_id']}: {str(e)}",
+            detail=f"[user_feedback_set] Exception {type(e)} occured during handling of task {query_params.task_id}: {str(e)}",
         )
     else:
-        return Response()
+        return Response(feedback_id=orm_feedback.id)
 
 
 ###########

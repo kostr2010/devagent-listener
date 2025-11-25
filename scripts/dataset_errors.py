@@ -23,7 +23,7 @@ def dataset_errors() -> None:
     if response == None:
         return
 
-    model = Response(**response)
+    model = Response.model_validate(response)
 
     print(model.model_dump_json())
 

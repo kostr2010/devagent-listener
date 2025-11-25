@@ -1,50 +1,32 @@
 import fastapi
 import validators
 import pydantic
-import typing
 
 from app.devagent.worker import review_init
 from app.routes.api.v1.devagent.tasks.validation import validate_query_params
 
 
-QUERY_PARAMS_SCHEMA = {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "type": "object",
-    "properties": {
-        "payload": {
-            "description": "Semicolon-separated list of urls for review",
-            "type": "string",
-        },
-    },
-    "required": ["payload"],
-    "additionalProperties": True,
-}
+class QueryParams(pydantic.BaseModel):
+    payload: str
 
 
 class Response(pydantic.BaseModel):
     task_id: str
 
 
-@validate_query_params(QUERY_PARAMS_SCHEMA)
-def action_run(
-    query_params: dict[str, typing.Any],
-) -> Response:
+@validate_query_params(QueryParams)
+def action_run(query_params: QueryParams) -> Response:
     try:
-        payload = query_params["payload"]
-
-        urls = _parse_urls(payload)
-
+        urls = _parse_urls(query_params.payload)
         _validate_url_list(urls)
-
         task = review_init.s(urls).apply_async()
-
-        print(f"started task {task.id} for payload {payload}")
+        print(f"started task {task.id} for payload {query_params.payload}")
     except fastapi.HTTPException as httpe:
         raise httpe
     except Exception as e:
         raise fastapi.HTTPException(
             status_code=500,
-            detail=f"[code_review_run] Exception {type(e)} occured during handling payload {query_params['payload']}: {str(e)}",
+            detail=f"[code_review_run] Exception {type(e)} occured during handling payload {query_params.payload}: {str(e)}",
         )
     else:
         return Response(task_id=task.id)

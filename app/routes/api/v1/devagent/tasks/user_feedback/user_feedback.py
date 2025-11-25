@@ -5,17 +5,27 @@ import redis.asyncio
 
 from app.db.async_db import AsyncSession
 
+from app.routes.api.v1.devagent.tasks.user_feedback.actions.get import (
+    action_get,
+    Response as GetResponse,
+)
 from app.routes.api.v1.devagent.tasks.user_feedback.actions.set import (
     action_set,
     Response as SetResponse,
 )
+from app.routes.api.v1.devagent.tasks.user_feedback.actions.update import (
+    action_update,
+    Response as UpdateResponse,
+)
 
 
 class Action(enum.IntEnum):
+    ACTION_GET = 0
     ACTION_SET = 1
+    ACTION_UPDATE = 2
 
 
-Response = SetResponse
+Response = GetResponse | SetResponse | UpdateResponse
 
 
 async def user_feedback(
@@ -41,8 +51,14 @@ async def user_feedback(
 
     _validate_action(action)
 
+    if Action.ACTION_GET.value == action:
+        return await action_get(db=db, query_params=query_params)
+
     if Action.ACTION_SET.value == action:
         return await action_set(db=db, redis=redis, query_params=query_params)
+
+    if Action.ACTION_UPDATE.value == action:
+        return await action_update(db=db, query_params=query_params)
 
     raise fastapi.HTTPException(
         status_code=500,

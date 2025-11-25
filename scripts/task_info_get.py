@@ -26,9 +26,7 @@ def task_info_get() -> None:
     if response == None:
         return
 
-    model = Response(**response)
-
-    print(json.dumps(model))
+    print(json.dumps(response))
 
 
 if __name__ == "__main__":

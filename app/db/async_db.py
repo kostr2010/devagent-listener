@@ -28,6 +28,8 @@ class AsyncSession:
     async def insert_errors(self, errors: list[Error]) -> None:
         self._session.add_all(errors)
         await self._session.commit()
+        for item in errors:
+            await self._session.refresh(item)
 
     async def select_patches(self, selector: ColumnSelector | None) -> list[Patch]:
         select = sqlalchemy.future.select(Patch)
@@ -38,18 +40,17 @@ class AsyncSession:
 
     async def get_patch(self, id: str) -> Patch | None:
         patches = await self.select_patches(lambda: Patch.id == id)
-
         if len(patches) == 0:
             return None
-
         if len(patches) > 1:
             raise Exception(f"Multiple patches matched {id} in the db")
-
         return patches[0]
 
     async def insert_patches(self, patches: list[Patch]) -> None:
         self._session.add_all(patches)
         await self._session.commit()
+        for item in patches:
+            await self._session.refresh(item)
 
     async def insert_patch_if_does_not_exist(
         self,
@@ -58,10 +59,8 @@ class AsyncSession:
         context: str | None,
     ) -> None:
         existing_patch = await self.get_patch(id)
-
         if existing_patch != None:
             return
-
         await self.insert_patches([Patch(id=id, content=content, context=context)])
 
     async def select_user_feebdack(
@@ -73,8 +72,28 @@ class AsyncSession:
         query_res = await self._session.execute(select)
         return [res for res in query_res.scalars().all()]
 
+    async def get_user_feebdack(self, id: int) -> UserFeedback | None:
+        feedback = await self.select_user_feebdack(lambda: UserFeedback.id == id)
+        if len(feedback) == 0:
+            return None
+        if len(feedback) > 1:
+            raise Exception(f"Multiple feedbacks matched {id} in the db")
+        return feedback[0]
+
     async def insert_user_feebdack(self, user_feedback: list[UserFeedback]) -> None:
         self._session.add_all(user_feedback)
+        await self._session.commit()
+        for item in user_feedback:
+            await self._session.refresh(item)
+
+    async def update_user_feebdack(self, id: int, new_feedback: int) -> None:
+        await self._session.execute(
+            sqlalchemy.update(UserFeedback)
+            .where(UserFeedback.id == id)
+            .values(feedback=new_feedback)
+        )
+
+    async def commit(self) -> None:
         await self._session.commit()
 
 

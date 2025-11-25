@@ -44,10 +44,10 @@ async def dataset(
     _validate_action(action)
 
     if Action.ACTION_ERRORS.value == action:
-        return await action_errors(db=db, query_params=query_params)
+        return await action_errors(db=db)
 
     if Action.ACTION_USER_FEEDBACK.value == action:
-        return await action_user_feedback(db=db, query_params=query_params)
+        return await action_user_feedback(db=db)
 
     raise fastapi.HTTPException(
         status_code=500,

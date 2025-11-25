@@ -1,6 +1,6 @@
 import redis.asyncio
 import fastapi
-import typing
+import pydantic
 
 from app.routes.api.v1.devagent.tasks.validation import (
     validate_query_params,
@@ -9,18 +9,8 @@ from app.routes.api.v1.devagent.tasks.validation import (
 from app.redis.models import TASK_INFO_SCHEMA
 
 
-QUERY_PARAMS_SCHEMA = {
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "type": "object",
-    "properties": {
-        "task_id": {
-            "description": "Task id of the review",
-            "type": "string",
-        },
-    },
-    "required": ["task_id"],
-    "additionalProperties": True,
-}
+class QueryParams(pydantic.BaseModel):
+    task_id: str
 
 
 Response = dict[str, str]
@@ -28,12 +18,11 @@ Response = dict[str, str]
 
 # FIXME: remove result validation through schema, make it pydantic
 @validate_result(TASK_INFO_SCHEMA)
-@validate_query_params(QUERY_PARAMS_SCHEMA)
-async def action_get(
-    redis: redis.asyncio.Redis, query_params: dict[str, typing.Any]
-) -> Response:
+@validate_query_params(QueryParams)
+async def action_get(redis: redis.asyncio.Redis, query_params: QueryParams) -> Response:
     try:
-        task_id = str(query_params["task_id"])
+        task_id = str(query_params.task_id)
+
         # since async redis is used, it is always Awaitable
         task_info = await redis.hgetall(task_id)  # type: ignore
 
@@ -51,7 +40,7 @@ async def action_get(
     except Exception as e:
         raise fastapi.HTTPException(
             status_code=500,
-            detail=f"[task_info_get] Exception {type(e)} occured during handling of task {query_params['task_id']}: {str(e)}",
+            detail=f"[task_info_get] Exception {type(e)} occured during handling of task {query_params.task_id}: {str(e)}",
         )
     else:
         return decoded
