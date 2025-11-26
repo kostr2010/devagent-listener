@@ -1,6 +1,7 @@
 import os.path
 import subprocess
 import pydantic
+import typing
 
 from app.devagent.stages.review_init import DevagentTask
 
@@ -14,11 +15,12 @@ class DevagentError(pydantic.BaseModel):
 class DevagentViolation(pydantic.BaseModel):
     file: str
     line: int
-    severity: str
+    severity: typing.Optional[str] = None
     rule: str
+    rule_url: typing.Optional[str] = None
     message: str
-    change_type: str
-    code_snippet: str
+    change_type: typing.Optional[str] = None
+    code_snippet: typing.Optional[str] = None
 
 
 class DevagentReview(pydantic.BaseModel):
@@ -94,9 +96,10 @@ def review_patch(
 
     result = DevagentReview.model_validate_json(devagent_result.stdout.decode("utf-8"))
 
-    # NOTE: fixup for LLM rule name hallucinations
     for violation in result.violations:
+        # NOTE: fixup for LLM rule name hallucinations
         violation.rule = rule
+        violation.rule_url = f"https://gitcode.com/nazarovkonstantin/arkcompiler_development_rules/tree/main/REVIEW_RULES/{rule}.md"
 
     return ReviewPatchResult(
         project=project,
