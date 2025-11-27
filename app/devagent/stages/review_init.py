@@ -383,6 +383,7 @@ def _create_devagent_config(wd: str) -> str:
     with open(devagent_config_path, "w") as cfg:
         cfg.write(f'provider = "{CONFIG.DEVAGENT_PROVIDER}"\n')
         cfg.write(f'model = "{CONFIG.DEVAGENT_MODEL}"\n')
-        cfg.write(f'api_key = "{CONFIG.DEVAGENT_API_KEY}"\n')
         cfg.write(f"auto_approve_code = false\n")
+        cfg.write(f"[providers.{CONFIG.DEVAGENT_PROVIDER}]\n")
+        cfg.write(f'api_key = "{CONFIG.DEVAGENT_API_KEY}"\n')
     return devagent_config_path
