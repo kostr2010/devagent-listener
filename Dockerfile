@@ -1,9 +1,5 @@
 FROM python:3.11
 
-ARG DEVAGENT_PROVIDER
-ARG DEVAGENT_MODEL
-ARG DEVAGENT_API_KEY
-
 RUN pip install pip --upgrade --timeout 300
 RUN apt update && apt upgrade -y
 RUN apt install git

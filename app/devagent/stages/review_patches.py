@@ -94,7 +94,13 @@ def review_patch(
             result=None,
         )
 
-    result = DevagentReview.model_validate_json(devagent_result.stdout.decode("utf-8"))
+    stdout = devagent_result.stdout.decode("utf-8")
+    if len(stdout) == 0:
+        raise Exception(
+            f"[review_patch] Received empty stdout for cmd: {cmd}. stderr = {stderr}"
+        )
+
+    result = DevagentReview.model_validate_json(stdout)
 
     for violation in result.violations:
         # NOTE: fixup for LLM rule name hallucinations

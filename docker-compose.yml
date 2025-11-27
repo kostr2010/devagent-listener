@@ -2,10 +2,6 @@ services:
   listener_app:
     build:
       context: .
-      args:
-        DEVAGENT_PROVIDER: ${DEVAGENT_PROVIDER}
-        DEVAGENT_MODEL: ${DEVAGENT_MODEL}
-        DEVAGENT_API_KEY: ${DEVAGENT_API_KEY}
     container_name: devagent_listener_app
     env_file: .env
     environment:
@@ -32,10 +28,6 @@ services:
   listener_devagent_worker:
     build:
       context: .
-      args:
-        DEVAGENT_PROVIDER: ${DEVAGENT_PROVIDER}
-        DEVAGENT_MODEL: ${DEVAGENT_MODEL}
-        DEVAGENT_API_KEY: ${DEVAGENT_API_KEY}
     container_name: devagent_listener_devagent_worker
     env_file: .env
     command: celery -A app.devagent.worker.devagent_worker worker --loglevel=info --autoscale=10,2
