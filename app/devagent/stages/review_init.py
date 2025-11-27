@@ -163,15 +163,13 @@ def _create_task_info(
         patch_name = os.path.basename(task.patch_path)
         patch_content_key = task_info_patch_content_key(patch_name)
         if not (patch_content_key in task_info):
-            p = open(task.patch_path)
-            task_info.update({patch_content_key: p.read()})
-            p.close()
+            with open(task.patch_path) as p:
+                task_info.update({patch_content_key: p.read()})
 
         patch_context_key = task_info_patch_context_key(patch_name)
         if not (patch_context_key in task_info):
-            c = open(task.context_path)
-            task_info.update({patch_context_key: c.read()})
-            c.close()
+            with open(task.context_path) as c:
+                task_info.update({patch_context_key: c.read()})
 
         # rule name is the file name of the rule without file extension
         rule_name = os.path.splitext(os.path.basename(task.rule_path))[0]

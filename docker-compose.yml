@@ -30,7 +30,7 @@ services:
       context: .
     container_name: devagent_listener_devagent_worker
     env_file: .env
-    command: celery -A app.devagent.worker.devagent_worker worker --loglevel=info --autoscale=${MAX_WORKERS},2
+    command: mprof run -C celery -A app.devagent.worker.devagent_worker worker --loglevel=info --autoscale=${MAX_WORKERS},2
     volumes:
       - ./app:/app
     healthcheck:

@@ -32,11 +32,16 @@ from app.devagent.stages.review_wrapup import (
 
 devagent_worker = celery_instance("devagent_worker", CONFIG.REDIS_DEVAGENT_DB)
 
+import tracemalloc
+from app.utils.tracemalloc import display_top
+
 
 @devagent_worker.task(bind=True, track_started=True)  # type: ignore
 def review_init(self: celery.Task, urls: list[str]) -> typing.Any:
     task_id = self.request.id
     log_tag = f"[{task_id}]"
+
+    tracemalloc.start()
 
     try:
         wd = tempfile.mkdtemp()
@@ -80,6 +85,9 @@ def review_init(self: celery.Task, urls: list[str]) -> typing.Any:
 
     untyped_tasks = [task.model_dump() for task in tasks]
 
+    display_top("review_init", tracemalloc.take_snapshot(), "lineno", 5)
+    tracemalloc.stop()
+
     return celery.chord(
         [
             review_patches.s(untyped_tasks, i, CONFIG.MAX_WORKERS)
@@ -95,8 +103,14 @@ def review_patches(
     group_idx: int,
     group_size: int,
 ) -> list[dict[str, typing.Any]]:
+    tracemalloc.start()
+
     validated_tasks = [DevagentTask.model_validate(item) for item in tasks]
     res = _review_patches(self, validated_tasks, group_idx, group_size)
+
+    display_top("review_patches", tracemalloc.take_snapshot(), "lineno", 5)
+    tracemalloc.stop()
+
     return [review.model_dump() for review in res]
 
 
@@ -106,11 +120,17 @@ def review_wrapup(
     review: list[list[dict[str, typing.Any]]],
     wd: str,
 ) -> dict[str, typing.Any]:
+    tracemalloc.start()
+
     validated_review = [
         [ReviewPatchResult.model_validate(item) for item in review_list]
         for review_list in review
     ]
     res = _wrapup(self, validated_review, wd)
+
+    display_top("review_wrapup", tracemalloc.take_snapshot(), "lineno", 5)
+    tracemalloc.stop()
+
     return res.model_dump()
 
 
