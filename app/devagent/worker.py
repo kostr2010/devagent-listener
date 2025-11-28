@@ -30,11 +30,7 @@ from app.devagent.stages.review_wrapup import (
     ProcessedReview,
 )
 
-DEVAGENT_REVIEW_GROUP_SIZE = 12
-
-DEVAGENT_WORKER_NAME = "devagent_worker"
-
-devagent_worker = celery_instance(DEVAGENT_WORKER_NAME, CONFIG.REDIS_DEVAGENT_DB)
+devagent_worker = celery_instance("devagent_worker", CONFIG.REDIS_DEVAGENT_DB)
 
 
 @devagent_worker.task(bind=True, track_started=True)  # type: ignore
@@ -86,8 +82,8 @@ def review_init(self: celery.Task, urls: list[str]) -> typing.Any:
 
     return celery.chord(
         [
-            review_patches.s(untyped_tasks, i, DEVAGENT_REVIEW_GROUP_SIZE)
-            for i in range(DEVAGENT_REVIEW_GROUP_SIZE)
+            review_patches.s(untyped_tasks, i, CONFIG.MAX_WORKERS)
+            for i in range(CONFIG.MAX_WORKERS)
         ],
     )(review_wrapup.s(wd))
 

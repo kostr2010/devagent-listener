@@ -29,6 +29,7 @@ class ListenerConfig(pydantic_settings.BaseSettings):
     NEXUS_USERNAME: str
     NEXUS_PASSWORD: str
     NEXUS_REPO_URL: str
+    MAX_WORKERS: int
 
     class Config:
         env_file = "./.env"
