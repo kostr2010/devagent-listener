@@ -7,6 +7,18 @@ _TASK_INFO_RULE_PREFIX = "ETS"
 _TASK_INFO_PROJECT_REVISION_PREFIX = "rev_"
 
 
+def task_info_task_id_key() -> str:
+    return "task_id"
+
+
+def task_info_rules_revision_key() -> str:
+    return task_info_project_revision_key("rules")
+
+
+def task_info_devagent_revision_key() -> str:
+    return task_info_project_revision_key("devagent")
+
+
 def task_info_project_revision_key(project_name: str) -> str:
     return f"{_TASK_INFO_PROJECT_REVISION_PREFIX}{project_name}"
 
@@ -34,10 +46,18 @@ TASK_INFO_SCHEMA = {
     "description": "Schema of the redis hash storage for given task id",
     "type": "object",
     "properties": {
-        "task_id": {
+        task_info_task_id_key(): {
             "description": "Task id associated with this info",
             "type": "string",
-        }
+        },
+        task_info_rules_revision_key(): {
+            "description": "Revision of the rules used for the review",
+            "type": "string",
+        },
+        task_info_devagent_revision_key(): {
+            "description": "Revision of the rules used for the review",
+            "type": "string",
+        },
     },
     "patternProperties": {
         # TODO: fix when new rules are added or patch format changes
@@ -59,11 +79,9 @@ TASK_INFO_SCHEMA = {
         },
     },
     "required": [
-        "task_id",
-        task_info_project_revision_key(
-            "nazarovkonstantin/arkcompiler_development_rules"
-        ),
-        task_info_project_revision_key("egavrin/devagent"),
+        task_info_task_id_key(),
+        task_info_rules_revision_key(),
+        task_info_devagent_revision_key(),
     ],
-    "additionalProperties": True,
+    "additionalProperties": False,
 }

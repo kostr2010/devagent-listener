@@ -1,7 +1,10 @@
 import fastapi
-import validators
 import pydantic
+import asyncio
 
+from app.redis.async_redis import AsyncRedis
+from app.db.async_db import AsyncDBSession
+from app.diff.provider import DiffProvider
 from app.devagent.worker import review_init
 from app.routes.api.v1.devagent.tasks.validation import validate_query_params
 
@@ -15,11 +18,22 @@ class Response(pydantic.BaseModel):
 
 
 @validate_query_params(QueryParams)
-def action_run(query_params: QueryParams) -> Response:
+async def action_run(
+    db: AsyncDBSession,
+    redis: AsyncRedis,
+    diff_provider: DiffProvider,
+    query_params: QueryParams,
+) -> Response:
     try:
         urls = _parse_urls(query_params.payload)
-        _validate_url_list(urls)
-        task = review_init.s(urls).apply_async()
+        diffs = await asyncio.gather(
+            *[asyncio.to_thread(diff_provider.get_diff, url) for url in urls]
+        )
+        task = review_init.s(
+            [diff.model_dump() for diff in diffs],
+            db.config().model_dump(),
+            redis.config().model_dump(),
+        ).apply_async()
         print(f"started task {task.id} for payload {query_params.payload}")
     except fastapi.HTTPException as httpe:
         raise httpe
@@ -39,28 +53,3 @@ def action_run(query_params: QueryParams) -> Response:
 
 def _parse_urls(urls: str) -> list[str]:
     return list(filter(lambda s: len(s) > 0, urls.split(";")))
-
-
-def _validate_url_list(urls: list[str]) -> None:
-    if len(urls) == 0:
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f"Expected non-empty semicolon-separated list of urls for payload",
-        )
-
-    for url in urls:
-        _validate_url(url)
-
-
-def _validate_url(url: str) -> None:
-    if not validators.url(url):
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f"Invalid url passed in payload: url={url}",
-        )
-
-    if (not "gitcode" in url) or (not "pull" in url):
-        raise fastapi.HTTPException(
-            status_code=400,
-            detail=f"Expected gitee / gitcode pull request url, got url={url}",
-        )

@@ -7,7 +7,7 @@ import os
 import http.client
 import dotenv
 
-from app.auth.signature import generate_signature
+from app.utils.authentication import generate_signature
 
 dotenv.load_dotenv()
 

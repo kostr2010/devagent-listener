@@ -2,17 +2,18 @@ import shutil
 import asyncio
 import pydantic
 
-from app.routes.api.v1.devagent.tasks.task_info.actions.get import action_get
-from app.config import CONFIG
-from app.redis.redis import init_async_redis_conn
 from app.db.schemas.error import Error
-from app.db.async_db import AsyncConnection
+from app.redis.async_redis import AsyncRedisConfig
+from app.redis.async_redis import AsyncRedisConfig, AsyncRedis
+from app.db.async_db import AsyncDBConnectionConfig, AsyncDBConnection
 from app.devagent.stages.review_patches import (
     DevagentError,
     DevagentViolation,
     ReviewPatchResult,
 )
-from app.redis.models import (
+from app.redis.schemas.task_info import (
+    task_info_rules_revision_key,
+    task_info_devagent_revision_key,
     task_info_patch_content_key,
     task_info_patch_context_key,
     task_info_project_revision_key,
@@ -25,6 +26,8 @@ class ProcessedReview(pydantic.BaseModel):
 
 
 def store_errors_to_postgres(
+    db_cfg: AsyncDBConnectionConfig,
+    redis_cfg: AsyncRedisConfig,
     task_id: str,
     processed_review: ProcessedReview,
 ) -> None:
@@ -34,7 +37,7 @@ def store_errors_to_postgres(
         return
 
     asyncio.get_event_loop().run_until_complete(
-        _store_errors_to_postgres(task_id, errors)
+        _store_errors_to_postgres(db_cfg, redis_cfg, task_id, errors)
     )
 
 
@@ -83,29 +86,22 @@ def process_review_result(
 
 
 async def _store_errors_to_postgres(
+    db_cfg: AsyncDBConnectionConfig,
+    redis_cfg: AsyncRedisConfig,
     task_id: str,
     errors: dict[str, list[DevagentError]],
 ) -> None:
-    redis_conn = init_async_redis_conn(CONFIG.REDIS_LISTENER_DB)
-    task_info = await action_get(redis=redis_conn, query_params={"task_id": task_id})
-    await redis_conn.close()
+    redis = AsyncRedis(redis_cfg)
+    task_info = await redis.get_task_info(task_id)
+    await redis.close()
 
-    ark_dev_rules_project = "nazarovkonstantin/arkcompiler_development_rules"
-    ark_dev_rules_rev_key = task_info_project_revision_key(ark_dev_rules_project)
+    ark_dev_rules_rev_key = task_info_rules_revision_key()
     ark_dev_rules_rev = task_info[ark_dev_rules_rev_key]
 
-    devagent_project = "egavrin/devagent"
-    devagent_rev_key = task_info_project_revision_key(devagent_project)
+    devagent_rev_key = task_info_devagent_revision_key()
     devagent_rev = task_info[devagent_rev_key]
 
-    db_conn = AsyncConnection(
-        CONFIG.DB_PROTOCOL,
-        CONFIG.DB_HOSTNAME,
-        CONFIG.DB_PORT,
-        CONFIG.DB_USER,
-        CONFIG.DB_PASSWORD,
-        CONFIG.DB_DB,
-    )
+    db_conn = AsyncDBConnection(db_cfg)
 
     async for db_session in db_conn.get_session():
         orm_errors = list[Error]()
@@ -135,7 +131,6 @@ async def _store_errors_to_postgres(
                     rule=rule,
                     message=message,
                 )
-
                 orm_errors.append(orm_error)
-
         await db_session.insert_errors(orm_errors)
+    await db_conn.close()

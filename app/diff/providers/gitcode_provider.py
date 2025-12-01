@@ -1,64 +1,61 @@
 import time
-import pydantic
 import urllib.request
 import urllib.parse
 import json
 import typing
+import re
+import validators
+
+from app.diff.models.diff import Diff, DiffFile, DiffSummary
+from app.diff.provider import IDiffProvider
 
 
-from app.config import CONFIG
+class GitcodeDiffProvider(IDiffProvider):
+    _api_token: str
 
+    def __init__(self, api_token: str) -> None:
+        super().__init__()
+        self._api_token = api_token
 
-class Summary(pydantic.BaseModel):
-    total_files: int
-    added_lines: int
-    removed_lines: int
-    base_sha: str
-    head_sha: str
+    def domain(self) -> str:
+        return "gitcode.com"
 
+    def get_diff(self, url: str, retries: int = 5) -> Diff:
+        _assert_valid_url(url)
 
-class DiffFile(pydantic.BaseModel):
-    file: str
-    diff: str
-    added_lines: int
-    removed_lines: int
+        timeout = 5
+        tries_left = retries
 
-
-class Diff(pydantic.BaseModel):
-    project: str
-    pr_number: int
-    files: list[DiffFile]
-    summary: Summary
-
-
-def get_diff(url: str) -> Diff:
-    if not "gitcode" in url:
-        raise Exception(f"Unsupported remote passed as url : {url}")
-
-    tries_left = 5
-    should_retry = True
-
-    while should_retry:
-        try:
-            diff = _try_get_diff(CONFIG.GITCODE_TOKEN, url)
-        except Exception as e:
-            if tries_left > 0:
-                tries_left -= 1
-                print(
-                    f"[tries left: {tries_left}] Get diff for url {url} with the exception {str(e)}"
-                )
-                time.sleep(5 * (5 - tries_left))
-            else:
-                raise e
-        else:
-            should_retry = False
-
-    return diff
+        while True:
+            try:
+                return _try_get_diff(self._api_token, url)
+            except Exception as e:
+                if tries_left > 0:
+                    tries_left -= 1
+                    print(
+                        f"[tries left: {tries_left}] Get diff for url {url} with the exception {str(e)}"
+                    )
+                    time.sleep(timeout * (retries - tries_left))
+                else:
+                    raise e
 
 
 ###########
 # private #
 ###########
+
+
+def _assert_valid_url(url: str) -> None:
+    if not validators.url(url):
+        raise Exception(f"Invalid pull request url : {url}")
+    if (
+        re.match(
+            "https?://gitcode\.com/[a-z,A-Z,0-9,_,-]+/[a-z,A-Z,0-9,_,-]+/pull/[0-9]+",
+            url,
+        )
+        == None
+    ):
+        raise Exception(f"Invalid gitcode pull request url : {url}")
 
 
 def _try_get_diff(token: str, url: str) -> Diff:
@@ -108,7 +105,7 @@ def _try_get_diff(token: str, url: str) -> Diff:
     files = _convert_to_standard_diff(data)
 
     # Add summary information
-    summary = Summary(
+    summary = DiffSummary(
         total_files=int(data.get("count", 0)),
         added_lines=int(data.get("added_lines", 0)),
         removed_lines=int(data.get("remove_lines", 0)),
@@ -117,8 +114,8 @@ def _try_get_diff(token: str, url: str) -> Diff:
     )
 
     res = Diff(
+        remote="gitcode.com",
         project=f"{owner}/{repo}",
-        pr_number=int(pr_number),
         files=files,
         summary=summary,
     )

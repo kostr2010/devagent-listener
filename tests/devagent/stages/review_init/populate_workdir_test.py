@@ -3,8 +3,11 @@ import tempfile
 import os
 import subprocess
 
-from app.devagent.stages.review_init import populate_workdir
-from app.config import CONFIG
+from app.devagent.stages.review_init import (
+    populate_workdir,
+    extract_project_info,
+    ProjectInfo,
+)
 from tests.devagent.mock.test_diffs.basic.arkcompiler_ets_frontend.empty import (
     DIFF as FE_EMPTY,
 )
@@ -16,27 +19,39 @@ from tests.devagent.mock.test_diffs.basic.arkcompiler_runtime_core.empty import 
 class PopulateWorkdirTest(unittest.TestCase):
     def test_no_diffs(self) -> None:
         with tempfile.TemporaryDirectory() as wd:
-            populate_workdir(wd, list())
+            populate_workdir(
+                wd,
+                ProjectInfo(
+                    remote="gitcode.com",
+                    project="nazarovkonstantin/arkcompiler_development_rules",
+                    revision="main",
+                ),
+                list(),
+            )
 
             self._check_dev_rules_project(wd)
-            self._check_devagent_toml(wd)
 
             wd_content = os.listdir(wd)
-            self.assertListEqual(
-                sorted(wd_content), sorted(["nazarovkonstantin", ".devagent.toml"])
-            )
+            self.assertListEqual(sorted(wd_content), sorted(["review_rules"]))
 
     def test_several_empty_diffs(self) -> None:
         with tempfile.TemporaryDirectory() as wd:
-            populate_workdir(wd, [RT_EMPTY, FE_EMPTY])
+            populate_workdir(
+                wd,
+                ProjectInfo(
+                    remote="gitcode.com",
+                    project="nazarovkonstantin/arkcompiler_development_rules",
+                    revision="main",
+                ),
+                [extract_project_info(diff) for diff in [RT_EMPTY, FE_EMPTY]],
+            )
 
             self._check_dev_rules_project(wd)
-            self._check_devagent_toml(wd)
 
             wd_content = os.listdir(wd)
             self.assertListEqual(
                 sorted(wd_content),
-                sorted(["nazarovkonstantin", ".devagent.toml", "openharmony"]),
+                sorted(["review_rules", "openharmony"]),
             )
             openharmony_content = os.listdir(os.path.join(wd, "openharmony"))
             self.assertListEqual(
@@ -53,25 +68,8 @@ class PopulateWorkdirTest(unittest.TestCase):
             self.assertEqual(_get_revision(arkcompiler_runtime_core_root), "master")
 
     def _check_dev_rules_project(self, wd: str) -> None:
-        dev_rules_root = os.path.abspath(
-            os.path.join(wd, "nazarovkonstantin", "arkcompiler_development_rules")
-        )
+        dev_rules_root = os.path.abspath(os.path.join(wd, "review_rules"))
         self.assertTrue(os.path.exists(dev_rules_root))
-
-    def _check_devagent_toml(self, wd: str) -> None:
-        devagent_toml = os.path.abspath(os.path.join(wd, ".devagent.toml"))
-        self.assertTrue(os.path.exists(devagent_toml))
-        with open(devagent_toml) as cfg:
-            content = cfg.read()
-
-            ans = ""
-            ans += f'provider = "{CONFIG.DEVAGENT_PROVIDER}"\n'
-            ans += f'model = "{CONFIG.DEVAGENT_MODEL}"\n'
-            ans += f"auto_approve_code = false\n"
-            ans += f"[providers.{CONFIG.DEVAGENT_PROVIDER}]\n"
-            ans += f'api_key = "{CONFIG.DEVAGENT_API_KEY}"\n'
-
-            self.assertEqual(content, ans)
 
 
 def _get_revision(root: str) -> str:

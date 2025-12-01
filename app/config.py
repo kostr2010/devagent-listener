@@ -4,6 +4,10 @@ import pydantic_settings
 class ListenerConfig(pydantic_settings.BaseSettings):
     GITCODE_TOKEN: str
     LISTENER_PORT: int
+    DEVAGENT_REVISION: str
+    DEVAGENT_RULES_REMOTE: str
+    DEVAGENT_RULES_PROJECT: str
+    DEVAGENT_RULES_REVISION: str
     DEVAGENT_PROVIDER: str
     DEVAGENT_MODEL: str
     DEVAGENT_API_KEY: str

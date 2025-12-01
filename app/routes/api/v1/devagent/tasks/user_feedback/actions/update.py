@@ -1,7 +1,7 @@
 import fastapi
 import pydantic
 
-from app.db.async_db import AsyncSession
+from app.db.async_db import AsyncDBSession
 from app.routes.api.v1.devagent.tasks.validation import validate_query_params
 
 
@@ -15,7 +15,7 @@ class Response(pydantic.BaseModel):
 
 
 @validate_query_params(QueryParams)
-async def action_update(db: AsyncSession, query_params: QueryParams) -> Response:
+async def action_update(db: AsyncDBSession, query_params: QueryParams) -> Response:
     try:
         print(query_params.model_dump())
         user_feedback = await db.get_user_feebdack(query_params.feedback_id)

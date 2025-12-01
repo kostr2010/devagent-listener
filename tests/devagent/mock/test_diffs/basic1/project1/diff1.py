@@ -1,8 +1,8 @@
-from app.gitcode.get_diff import Diff, Summary, DiffFile
+from app.diff.models.diff import Diff, DiffSummary, DiffFile
 
 DIFF = Diff(
+    remote="",
     project="project1",
-    pr_number=1,
     files=[
         DiffFile(
             file="dir1/file1",
@@ -48,7 +48,7 @@ index 0000000..2383bd5
             removed_lines=0,
         ),
     ],
-    summary=Summary(
+    summary=DiffSummary(
         total_files=3,
         added_lines=3,
         removed_lines=0,

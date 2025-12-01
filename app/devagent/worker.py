@@ -1,20 +1,24 @@
 import celery  # type: ignore
 import inspect
+import multiprocessing
 import celery.exceptions  # type: ignore
 import traceback
 import tempfile
 import typing
 import os
 
-from app.celery.celery import celery_instance
+from app.diff.models.diff import Diff
+from app.db.async_db import AsyncDBConnectionConfig
+from app.redis.async_redis import AsyncRedisConfig
 from app.config import CONFIG
 
 from app.devagent.stages.review_init import (
+    extract_project_info,
     populate_workdir,
-    get_diffs,
     load_rules,
     prepare_tasks,
     store_task_info_to_redis,
+    ProjectInfo,
     DevagentTask,
 )
 from app.devagent.stages.review_patches import (
@@ -27,163 +31,157 @@ from app.devagent.stages.review_wrapup import (
     store_errors_to_postgres,
     clean_workdir,
     process_review_result,
-    ProcessedReview,
 )
 
-devagent_worker = celery_instance("devagent_worker", CONFIG.REDIS_DEVAGENT_DB)
+UntypedModel = dict[str, typing.Any]
+
+
+def init_worker() -> celery.Celery:
+    usr = CONFIG.REDIS_USERNAME
+    pwd = CONFIG.REDIS_PASSWORD
+    host = CONFIG.REDIS_HOST
+    port = CONFIG.REDIS_PORT
+    db = CONFIG.REDIS_DEVAGENT_DB
+    redis_url = f"redis://{usr}:{pwd}@{host}:{port}/{db}"
+
+    app = celery.Celery(
+        "devagent_worker",
+        broker=redis_url,
+        backend=redis_url,
+    )
+
+    app.conf.task_track_started = True
+    app.conf.result_expires = CONFIG.EXPIRY_DEVAGENT_WORKER
+
+    return app
+
+
+devagent_worker = init_worker()
 
 
 @devagent_worker.task(bind=True, track_started=True)  # type: ignore
-def review_init(self: celery.Task, urls: list[str]) -> typing.Any:
+def review_init(
+    self: celery.Task,
+    diffs: list[UntypedModel],
+    db_cfg: UntypedModel,
+    redis_cfg: UntypedModel,
+    n_groups: int = CONFIG.MAX_WORKERS,
+) -> typing.Any:
     task_id = self.request.id
     log_tag = f"[{task_id}]"
 
     try:
         wd = tempfile.mkdtemp()
-    except Exception:
-        raise celery.exceptions.TaskError(_exception_message(log_tag))
 
-    try:
-        diffs = get_diffs(urls)
-    except Exception:
-        raise celery.exceptions.TaskError(_exception_message(log_tag))
-    else:
-        print(f"{log_tag} got diffs of urls {urls}")
+        validated_diffs = [Diff.model_validate(diff) for diff in diffs]
 
-    try:
-        populate_workdir(wd, diffs)
-    except Exception:
-        raise celery.exceptions.TaskError(_exception_message(log_tag))
-    else:
-        print(f"{log_tag} populated workdir {wd}")
+        projects_info = [extract_project_info(diff) for diff in validated_diffs]
 
-    try:
+        rules_info = ProjectInfo(
+            remote=CONFIG.DEVAGENT_RULES_REMOTE,
+            project=CONFIG.DEVAGENT_RULES_PROJECT,
+            revision=CONFIG.DEVAGENT_RULES_REVISION,
+        )
+
+        populate_workdir(wd, rules_info, projects_info)
+
         rules = load_rules(wd)
+
+        tasks = prepare_tasks(task_id, wd, rules, validated_diffs)
+
+        validated_redis_cfg = AsyncRedisConfig.model_validate(redis_cfg)
+        store_task_info_to_redis(
+            redis_cfg=validated_redis_cfg, task_id=task_id, wd=wd, tasks=tasks
+        )
+
+        untyped_tasks = [task.model_dump() for task in tasks]
+
+        review_tasks = [
+            review_patches.s(untyped_tasks, i, n_groups) for i in range(n_groups)
+        ]
+        wrapup_task = review_wrapup.s(wd, db_cfg, redis_cfg)
+
+        chord = celery.chord(review_tasks)(wrapup_task)
     except Exception:
         raise celery.exceptions.TaskError(_exception_message(log_tag))
-    else:
-        print(f"{log_tag} loaded rules {rules}")
 
-    try:
-        tasks = prepare_tasks(task_id, wd, rules, diffs)
-    except Exception:
-        raise celery.exceptions.TaskError(_exception_message(log_tag))
-    else:
-        print(f"{log_tag} prepared {len(tasks)} tasks {tasks}")
-
-    try:
-        store_task_info_to_redis(task_id=task_id, wd=wd, tasks=tasks)
-    except Exception:
-        raise celery.exceptions.TaskError(_exception_message(log_tag))
-    else:
-        print(f"{log_tag} stored task info to redis")
-
-    untyped_tasks = [task.model_dump() for task in tasks]
-
-    return celery.chord(
-        [
-            review_patches.s(untyped_tasks, i, CONFIG.MAX_WORKERS)
-            for i in range(CONFIG.MAX_WORKERS)
-        ],
-    )(review_wrapup.s(wd))
+    return chord
 
 
 @devagent_worker.task(bind=True, track_started=True)  # type: ignore
 def review_patches(
     self: celery.Task,
-    tasks: list[dict[str, typing.Any]],
+    tasks: list[UntypedModel],
     group_idx: int,
     group_size: int,
-) -> list[dict[str, typing.Any]]:
-    validated_tasks = [DevagentTask.model_validate(item) for item in tasks]
-    res = _review_patches(self, validated_tasks, group_idx, group_size)
-    return [review.model_dump() for review in res]
-
-
-@devagent_worker.task(bind=True, track_started=True)  # type: ignore
-def review_wrapup(
-    self: celery.Task,
-    review: list[list[dict[str, typing.Any]]],
-    wd: str,
-) -> dict[str, typing.Any]:
-    validated_review = [
-        [ReviewPatchResult.model_validate(item) for item in review_list]
-        for review_list in review
-    ]
-    res = _wrapup(self, validated_review, wd)
-    return res.model_dump()
-
-
-###########
-# private #
-###########
-
-
-# Since celery can not serialize pydantic models, do verification here
-def _review_patches(
-    self: celery.Task, tasks: list[DevagentTask], group_idx: int, group_size: int
-) -> list[ReviewPatchResult]:
-    log_tag = (
-        f"[{self.request.root_id}] -> [{self.request.parent_id}] -> [{self.request.id}]"
-    )
+) -> list[UntypedModel]:
+    log_tag = f"[{self.request.root_id}] -> [{self.request.id}]"
 
     try:
-        start_idx, end_idx = worker_get_range(len(tasks), group_idx, group_size)
-        tasks = [tasks[i] for i in range(start_idx, end_idx)]
-    except Exception:
-        raise celery.exceptions.TaskError(_exception_message(log_tag))
-    else:
-        print(f"{log_tag} received {len(tasks)} tasks {tasks}")
+        validated_tasks = [DevagentTask.model_validate(item) for item in tasks]
 
-    results = list()
-    for task in tasks:
-        try:
+        start_idx, end_idx = worker_get_range(
+            len(validated_tasks), group_idx, group_size
+        )
+
+        validated_tasks = [validated_tasks[i] for i in range(start_idx, end_idx)]
+
+        results = list()
+        for task in validated_tasks:
             project_root = os.path.abspath(os.path.join(task.wd, task.project))
             patch_review_result = review_patch(
                 project_root, task.patch_path, task.rule_path, task.context_path
             )
             results.append(patch_review_result)
-        except Exception:
-            raise celery.exceptions.TaskError(_exception_message(log_tag))
 
-    try:
         filtered_results = [filter_violations(result, task) for result in results]
+
+        res = [review.model_dump() for review in filtered_results]
     except Exception:
         raise celery.exceptions.TaskError(_exception_message(log_tag))
 
-    return filtered_results
+    return res
 
 
-# Since celery can not serialize pydantic models, do verification here
-def _wrapup(
+@devagent_worker.task(bind=True, track_started=True)  # type: ignore
+def review_wrapup(
     self: celery.Task,
-    review: list[list[ReviewPatchResult]],
+    review: list[list[UntypedModel]],
     wd: str,
-) -> ProcessedReview:
+    db_cfg: UntypedModel,
+    redis_cfg: UntypedModel,
+) -> UntypedModel:
     log_tag = f"[{self.request.root_id}] -> [{self.request.id}]"
 
     try:
-        res = process_review_result(review)
-    except Exception:
-        raise celery.exceptions.TaskError(_exception_message(log_tag))
-    else:
-        print(f"{log_tag} processed review result {res}")
+        validated_review = [
+            [ReviewPatchResult.model_validate(item) for item in review_list]
+            for review_list in review
+        ]
 
-    try:
-        store_errors_to_postgres(self.request.root_id, res)
-    except Exception:
-        raise celery.exceptions.TaskError(_exception_message(log_tag))
-    else:
-        print(f"{log_tag} stored errors to postgres")
+        processed_review = process_review_result(validated_review)
 
-    try:
+        validated_db_cfg = AsyncDBConnectionConfig.model_validate(db_cfg)
+        validated_redis_cfg = AsyncRedisConfig.model_validate(redis_cfg)
+        store_errors_to_postgres(
+            validated_db_cfg,
+            validated_redis_cfg,
+            self.request.root_id,
+            processed_review,
+        )
+
         clean_workdir(wd)
+
+        untyped_review = processed_review.model_dump()
     except Exception:
         raise celery.exceptions.TaskError(_exception_message(log_tag))
-    else:
-        print(f"{log_tag} cleaned workdir {wd}")
 
-    return res
+    return untyped_review
+
+
+###########
+# private #
+###########
 
 
 def _exception_message(tag: str) -> str:
