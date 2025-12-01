@@ -1,3 +1,4 @@
+import os
 import os.path
 import hashlib
 import asyncio
@@ -44,10 +45,10 @@ def populate_workdir(wd: str, diffs: list[Diff]) -> None:
     ), f"Local devagent config {local_devagent_config} does not exist"
 
     project, branch = ARKCOMPILER_DEVELOPMENT_RULES
-    _clone_project(wd, project, branch)
+    _init_project(wd, project, branch)
 
     for diff in diffs:
-        _clone_project(wd, diff.project, diff.summary.base_sha)
+        _init_project(wd, diff.project, diff.summary.base_sha)
 
 
 def get_diffs(urls: list[str]) -> list[Diff]:
@@ -237,12 +238,29 @@ def _arkcompiler_development_rules_root(wd: str) -> str:
     return abspath_join(wd, project)
 
 
-def _clone_project(wd: str, project: str, branch: str) -> None:
+def _init_project(wd: str, project: str, branch: str) -> None:
     root = abspath_join(wd, project)
     os.makedirs(root, exist_ok=True)
     assert os.path.exists(root), f"Root {root} for cloning does not exist"
-    clone = _clone(dir=root, url=f"https://gitcode.com/{project}.git")
-    clone.git.checkout(branch)
+    repo = git.Repo.init(path=root, mkdir=False)
+    remote_name = "origin"
+    repo.create_remote(remote_name, f"https://gitcode.com/{project}.git")
+    tries_left = 5
+    while tries_left > 0:
+        try:
+            repo.git.fetch("origin", branch, "--depth=1")
+            # os.system(f"(cd {root} && git fetch {remote_name} {branch} --depth=1)")
+            break
+        except Exception as e:
+            if tries_left > 0:
+                tries_left -= 1
+                print(
+                    f"[tries left: {tries_left}] git fetch failed with the exception {e}"
+                )
+                time.sleep(5 * (5 - tries_left))
+            else:
+                raise e
+    repo.git.checkout(branch)
 
 
 def _diff_hash(diff: str) -> str:
@@ -334,32 +352,6 @@ def _invert_loaded_rules(review_rules: dict[str, set[str]]) -> dict[str, list[st
             inverted_rules.update({rule: dirs})
 
     return inverted_rules
-
-
-def _clone(url: str, dir: str, retries: int = 5) -> git.Repo:
-    tries_left = retries
-
-    while tries_left > 0:
-        try:
-            return git.Repo.clone_from(
-                url,
-                dir,
-                allow_unsafe_protocols=True,
-                # depth=1,
-            )
-        except Exception as e:
-            if tries_left > 0:
-                tries_left -= 1
-                print(
-                    f"[tries left: {tries_left}] Repo clone failed with the exception {e}"
-                )
-                time.sleep(5 * (5 - tries_left))
-
-    return git.Repo.clone_from(
-        url,
-        dir,
-        allow_unsafe_protocols=True,
-    )
 
 
 def _get_revision(root: str) -> str:

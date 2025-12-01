@@ -10,14 +10,19 @@ from app.routes.api.v1.devagent.tasks.code_review.actions.run import (
     action_run,
     Response as RunResponse,
 )
+from app.routes.api.v1.devagent.tasks.code_review.actions.revoke import (
+    action_revoke,
+    Response as RevokeResponse,
+)
 
 
 class Action(enum.IntEnum):
     ACTION_GET = 0
     ACTION_RUN = 1
+    ACTION_REVOKE = 2
 
 
-Response = GetResponse | RunResponse
+Response = GetResponse | RunResponse | RevokeResponse
 
 
 def code_review(action: int, query_params: dict[str, typing.Any]) -> Response:
@@ -41,6 +46,9 @@ def code_review(action: int, query_params: dict[str, typing.Any]) -> Response:
 
     if Action.ACTION_RUN.value == action:
         return action_run(query_params=query_params)
+
+    if Action.ACTION_REVOKE.value == action:
+        return action_revoke(query_params=query_params)
 
     raise fastapi.HTTPException(
         status_code=500,

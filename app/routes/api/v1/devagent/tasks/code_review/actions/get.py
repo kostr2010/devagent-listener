@@ -3,6 +3,7 @@ import enum
 import pydantic
 import typing
 import celery.result  # type: ignore
+import celery.states  # type: ignore
 
 from app.devagent.worker import devagent_worker
 from app.devagent.stages.review_patches import ReviewPatchResult
@@ -17,6 +18,7 @@ class QueryParams(pydantic.BaseModel):
 class TaskStatus(enum.IntEnum):
     TASK_STATUS_SUCCESSFUL = 1  # Task completed successfully
     TASK_STATUS_FAILED = 2  # Task completed abnormally
+    TASK_STATUS_REVOKED = 3  # Task was cancelled
     TASK_STATUS_PENDING = 4  # Task execution is pending
 
 
@@ -34,7 +36,7 @@ def action_get(query_params: QueryParams) -> Response:
             parent_task
         )
 
-        # failed or pending init
+        # failed, revoked or pending init
         if parent_task_status != TaskStatus.TASK_STATUS_SUCCESSFUL:
             return Response(
                 task_id=parent_task.id,
@@ -49,7 +51,7 @@ def action_get(query_params: QueryParams) -> Response:
             wrapup_task
         )
 
-        # failed or successfull wrapup
+        # failed, revoked or successfull wrapup
         if wrapup_task_status != TaskStatus.TASK_STATUS_PENDING:
             return Response(
                 task_id=parent_task.id,
@@ -98,6 +100,9 @@ def _get_task_status_and_result(
 ) -> tuple[TaskStatus, typing.Any]:
     if not task.ready():
         task_status = TaskStatus.TASK_STATUS_PENDING
+        task_result = None
+    elif task.state == celery.states.REVOKED:
+        task_status = TaskStatus.TASK_STATUS_REVOKED
         task_result = None
     elif task.failed():
         task_status = TaskStatus.TASK_STATUS_FAILED
