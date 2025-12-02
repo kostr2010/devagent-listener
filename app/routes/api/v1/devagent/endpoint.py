@@ -1,8 +1,10 @@
 import fastapi
 import enum
-import redis.asyncio
 
-from app.db.async_db import AsyncSession
+from app.redis.async_redis import AsyncRedis
+from app.db.async_db import AsyncDBSession
+from app.diff.provider import DiffProvider
+from app.nexus.repo import NexusRepo
 
 from app.routes.api.v1.devagent.tasks.code_review.code_review import (
     code_review,
@@ -11,10 +13,6 @@ from app.routes.api.v1.devagent.tasks.code_review.code_review import (
 from app.routes.api.v1.devagent.tasks.user_feedback.user_feedback import (
     user_feedback,
     Response as UserFeedbackResponse,
-)
-from app.routes.api.v1.devagent.tasks.task_info.task_info import (
-    task_info,
-    Response as TaskInfoResponse,
 )
 from app.routes.api.v1.devagent.tasks.dataset.dataset import (
     dataset,
@@ -25,20 +23,18 @@ from app.routes.api.v1.devagent.tasks.dataset.dataset import (
 class TaskKind(enum.IntEnum):
     TASK_KIND_CODE_REVIEW = 0  # Code review
     TASK_KIND_USER_FEEDBACK = 1  # Feedback for the rules
-    TASK_KIND_TASK_INFO = 2  # Misc info about the task
     TASK_KIND_DATASET = 3  # Collect db info into dataset
 
 
-Response = (
-    CodeReviewResponse | UserFeedbackResponse | TaskInfoResponse | DatasetResponse
-)
+Response = CodeReviewResponse | UserFeedbackResponse | DatasetResponse
 
 
 async def endpoint_api_v1_devagent(
-    response: fastapi.Response,
     request: fastapi.Request,
-    db: AsyncSession,
-    redis: redis.asyncio.Redis,
+    db: AsyncDBSession,
+    redis: AsyncRedis,
+    nexus: NexusRepo,
+    diff_provider: DiffProvider,
     task_kind: int,
     action: int,
 ) -> Response:
@@ -47,7 +43,13 @@ async def endpoint_api_v1_devagent(
     query_params = dict(request.query_params)
 
     if TaskKind.TASK_KIND_CODE_REVIEW.value == task_kind:
-        return code_review(action=action, query_params=query_params)
+        return await code_review(
+            db=db,
+            redis=redis,
+            action=action,
+            diff_provider=diff_provider,
+            query_params=query_params,
+        )
 
     if TaskKind.TASK_KIND_USER_FEEDBACK.value == task_kind:
         return await user_feedback(
@@ -57,11 +59,8 @@ async def endpoint_api_v1_devagent(
             query_params=query_params,
         )
 
-    if TaskKind.TASK_KIND_TASK_INFO.value == task_kind:
-        return await task_info(redis=redis, action=action, query_params=query_params)
-
     if TaskKind.TASK_KIND_DATASET.value == task_kind:
-        return await dataset(db=db, action=action, query_params=query_params)
+        return await dataset(db=db, nexus=nexus, action=action)
 
     raise fastapi.HTTPException(
         status_code=500,

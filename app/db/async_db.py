@@ -3,6 +3,7 @@ import alembic.config
 import alembic.command
 import sqlalchemy.future
 import sqlalchemy.ext.asyncio
+import pydantic
 
 from app.db.schemas.error import Error
 from app.db.schemas.patch import Patch
@@ -12,11 +13,27 @@ from app.db.schemas.user_feedback import UserFeedback
 ColumnSelector = typing.Callable[[], typing.Any]
 
 
-class AsyncSession:
+class AsyncDBConnectionConfig(pydantic.BaseModel):
+    protocol: str
+    host: str
+    port: int
+    user: str
+    password: str
+    db: str
+
+
+class AsyncDBSession:
+    _conf: AsyncDBConnectionConfig
     _session: sqlalchemy.ext.asyncio.AsyncSession
 
-    def __init__(self, session: sqlalchemy.ext.asyncio.AsyncSession):
+    def __init__(
+        self, session: sqlalchemy.ext.asyncio.AsyncSession, cfg: AsyncDBConnectionConfig
+    ):
+        self._conf = cfg
         self._session = session
+
+    def config(self) -> AsyncDBConnectionConfig:
+        return self._conf
 
     async def select_errors(self, selector: ColumnSelector | None) -> list[Error]:
         select = sqlalchemy.future.select(Error)
@@ -97,16 +114,18 @@ class AsyncSession:
         await self._session.commit()
 
 
-class AsyncConnection:
+class AsyncDBConnection:
+    _conf: AsyncDBConnectionConfig
     _engine: sqlalchemy.ext.asyncio.AsyncEngine
     _session_maker: sqlalchemy.ext.asyncio.async_sessionmaker[
         sqlalchemy.ext.asyncio.AsyncSession
     ]
 
-    def __init__(
-        self, protocol: str, host: str, port: int, user: str, pwd: str, db: str
-    ):
-        url = f"{protocol}://{user}:{pwd}@{host}:{port}/{db}"
+    def __init__(self, cfg: AsyncDBConnectionConfig):
+        url = (
+            f"{cfg.protocol}://{cfg.user}:{cfg.password}@{cfg.host}:{cfg.port}/{cfg.db}"
+        )
+        self._conf = cfg
         self._engine = sqlalchemy.ext.asyncio.create_async_engine(
             url, echo=True, future=True, pool_size=100, max_overflow=20
         )
@@ -124,10 +143,10 @@ class AsyncConnection:
         async with self._engine.begin() as conn:
             await conn.run_sync(_run_migrations)
 
-    async def get_session(self) -> typing.AsyncGenerator[AsyncSession, None]:
+    async def get_session(self) -> typing.AsyncGenerator[AsyncDBSession, None]:
         async with self._session_maker() as session:
             try:
-                yield AsyncSession(session)
+                yield AsyncDBSession(session, self._conf)
                 await session.commit()
             except Exception as e:
                 await session.rollback()

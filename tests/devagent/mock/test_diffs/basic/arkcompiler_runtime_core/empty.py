@@ -1,10 +1,10 @@
-from app.gitcode.get_diff import Diff, Summary
+from app.diff.models.diff import Diff, DiffSummary
 
 DIFF = Diff(
+    remote="gitcode.com",
     project="openharmony/arkcompiler_runtime_core",
-    pr_number=1111,
     files=list(),
-    summary=Summary(
+    summary=DiffSummary(
         total_files=0,
         added_lines=0,
         removed_lines=0,

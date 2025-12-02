@@ -1,14 +1,16 @@
-import redis.asyncio
 import base64
 import zlib
 import fastapi
 import pydantic
 
-from app.db.async_db import AsyncSession
+from app.redis.async_redis import AsyncRedis
+from app.db.async_db import AsyncDBSession
 from app.db.schemas.user_feedback import UserFeedback
 from app.routes.api.v1.devagent.tasks.validation import validate_query_params
-from app.routes.api.v1.devagent.tasks.task_info.actions.get import action_get
-from app.redis.models import (
+
+from app.redis.schemas.task_info import (
+    task_info_rules_revision_key,
+    task_info_devagent_revision_key,
     task_info_patch_content_key,
     task_info_patch_context_key,
     task_info_project_revision_key,
@@ -27,21 +29,17 @@ class Response(pydantic.BaseModel):
 
 @validate_query_params(QueryParams)
 async def action_set(
-    db: AsyncSession, redis: redis.asyncio.Redis, query_params: QueryParams
+    db: AsyncDBSession, redis: AsyncRedis, query_params: QueryParams
 ) -> Response:
     try:
         project, file, line, rule = _decrypt_project_file_line_rule(query_params.data)
 
-        task_info = await action_get(
-            redis=redis, query_params=query_params.model_dump()
-        )
+        task_info = await redis.get_task_info(query_params.task_id)
 
-        ark_dev_rules_project = "nazarovkonstantin/arkcompiler_development_rules"
-        ark_dev_rules_rev_key = task_info_project_revision_key(ark_dev_rules_project)
+        ark_dev_rules_rev_key = task_info_rules_revision_key()
         ark_rev_rules_rev = task_info[ark_dev_rules_rev_key]
 
-        devagent_project = "egavrin/devagent"
-        devagent_rev_key = task_info_project_revision_key(devagent_project)
+        devagent_rev_key = task_info_devagent_revision_key()
         devagent_rev = task_info[devagent_rev_key]
 
         project_rev_key = task_info_project_revision_key(project)

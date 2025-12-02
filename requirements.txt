@@ -47,9 +47,11 @@ SQLAlchemy==2.0.44
 starlette==0.48.0
 types-jsonschema==4.25.1.20251009
 types-requests==2.32.4.20250913
+types-unidiff==0.7.0.20240505
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2025.2
+unidiff==0.7.5
 urllib3==2.5.0
 uvicorn==0.38.0
 validators==0.35.0

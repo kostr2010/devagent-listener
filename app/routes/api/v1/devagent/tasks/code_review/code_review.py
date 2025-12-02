@@ -2,6 +2,10 @@ import fastapi
 import enum
 import typing
 
+from app.redis.async_redis import AsyncRedis
+from app.db.async_db import AsyncDBSession
+from app.diff.provider import DiffProvider
+
 from app.routes.api.v1.devagent.tasks.code_review.actions.get import (
     action_get,
     Response as GetResponse,
@@ -25,10 +29,18 @@ class Action(enum.IntEnum):
 Response = GetResponse | RunResponse | RevokeResponse
 
 
-def code_review(action: int, query_params: dict[str, typing.Any]) -> Response:
+async def code_review(
+    db: AsyncDBSession,
+    redis: AsyncRedis,
+    diff_provider: DiffProvider,
+    action: int,
+    query_params: dict[str, typing.Any],
+) -> Response:
     """Work with the code review of the devagent for given PRs
 
     Args:
+        db (AsyncSession): Database connection for persistent storage
+        redis (AsyncRedis): Redis connection to take task metadata from
         action (int): Action required by the endpoint. Can be one of the `Action` enum
         query_params (dict): Payload for the endpoint. Interpreted differently depending on the action
 
@@ -45,7 +57,9 @@ def code_review(action: int, query_params: dict[str, typing.Any]) -> Response:
         return action_get(query_params=query_params)
 
     if Action.ACTION_RUN.value == action:
-        return action_run(query_params=query_params)
+        return await action_run(
+            db=db, redis=redis, diff_provider=diff_provider, query_params=query_params
+        )
 
     if Action.ACTION_REVOKE.value == action:
         return action_revoke(query_params=query_params)

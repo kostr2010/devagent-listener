@@ -9,17 +9,20 @@ import time
 import pydantic
 import typing
 
-from app.routes.api.v1.devagent.tasks.task_info.actions.set import action_set
-from app.config import CONFIG
-from app.redis.redis import init_async_redis_conn
-from app.gitcode.get_diff import get_diff, Diff
+from app.redis.async_redis import AsyncRedisConfig, AsyncRedis
+from app.diff.models.diff import Diff
 from app.utils.path import abspath_join
 from app.patch.analyzer import PatchAnalyzer
-from app.redis.models import (
+from app.redis.schemas.task_info import (
+    task_info_task_id_key,
+    task_info_rules_revision_key,
+    task_info_devagent_revision_key,
     task_info_project_revision_key,
     task_info_patch_context_key,
     task_info_patch_content_key,
 )
+
+_RULES_PROJECT = "review_rules"
 
 
 class DevagentTask(pydantic.BaseModel):
@@ -31,33 +34,32 @@ class DevagentTask(pydantic.BaseModel):
     rule_dirs: list[str]
 
 
-ARKCOMPILER_DEVELOPMENT_RULES: tuple[str, str] = (
-    "nazarovkonstantin/arkcompiler_development_rules",
-    "main",
-)
+class ProjectInfo(pydantic.BaseModel):
+    remote: str
+    project: str
+    revision: str
 
 
-def populate_workdir(wd: str, diffs: list[Diff]) -> None:
+def extract_project_info(diff: Diff) -> ProjectInfo:
+    return ProjectInfo(
+        remote=diff.remote, project=diff.project, revision=diff.summary.base_sha
+    )
+
+
+def populate_workdir(
+    wd: str, rules_info: ProjectInfo, projects_info: list[ProjectInfo]
+) -> None:
     assert os.path.exists(wd), f"Working widectory {wd} does not exist"
-    local_devagent_config = _create_devagent_config(wd)
-    assert os.path.exists(
-        local_devagent_config
-    ), f"Local devagent config {local_devagent_config} does not exist"
 
-    project, branch = ARKCOMPILER_DEVELOPMENT_RULES
-    _init_project(wd, project, branch)
+    _init_rules_project(wd, rules_info)
 
-    for diff in diffs:
-        _init_project(wd, diff.project, diff.summary.base_sha)
-
-
-def get_diffs(urls: list[str]) -> list[Diff]:
-    return [get_diff(url) for url in urls]
+    for project_info in projects_info:
+        _init_project(wd, project_info)
 
 
 def load_rules(wd: str) -> dict[str, list[str]]:
-    ark_dev_rules_root = _arkcompiler_development_rules_root(wd)
-    review_rules = _load_rules_from_repo_root(ark_dev_rules_root)
+    ark_dev_rules_root = _rules_root(wd)
+    review_rules = _load_rules_from_root(ark_dev_rules_root)
     filtered_rules = _remove_non_existing_dirs(wd, review_rules)
     rule_to_dirs = _invert_loaded_rules(filtered_rules)
 
@@ -117,16 +119,13 @@ def prepare_tasks(
     return tasks
 
 
-def store_task_info_to_redis(task_id: str, wd: str, tasks: list[DevagentTask]) -> None:
+def store_task_info_to_redis(
+    redis_cfg: AsyncRedisConfig, task_id: str, wd: str, tasks: list[DevagentTask]
+) -> None:
     task_info = _create_task_info(task_id, wd, tasks)
-
-    conn = init_async_redis_conn(CONFIG.REDIS_LISTENER_DB)
-
-    asyncio.get_event_loop().run_until_complete(
-        action_set(redis=conn, query_params=task_info)
-    )
-
-    asyncio.get_event_loop().run_until_complete(conn.close())
+    redis = AsyncRedis(redis_cfg)
+    asyncio.get_event_loop().run_until_complete(redis.set_task_info(task_info))
+    asyncio.get_event_loop().run_until_complete(redis.close())
 
 
 ###########
@@ -139,18 +138,16 @@ def _create_task_info(
 ) -> dict[str, typing.Any]:
     task_info = dict()
 
-    task_info.update({"task_id": task_id})
+    task_info.update({task_info_task_id_key(): task_id})
 
-    ark_dev_rules_root = _arkcompiler_development_rules_root(wd)
+    ark_dev_rules_root = _rules_root(wd)
     ark_dev_rules_rev = _get_revision(ark_dev_rules_root)
-    ark_dev_rules_rev_key = task_info_project_revision_key(
-        ARKCOMPILER_DEVELOPMENT_RULES[0]
-    )
+    ark_dev_rules_rev_key = task_info_rules_revision_key()
     task_info.update({ark_dev_rules_rev_key: ark_dev_rules_rev})
 
     devagent_root = "/devagent"
     devagent_rev = _get_revision(devagent_root)
-    devagent_rev_key = task_info_project_revision_key("egavrin/devagent")
+    devagent_rev_key = task_info_devagent_revision_key()
     task_info.update({devagent_rev_key: devagent_rev})
 
     for task in tasks:
@@ -203,7 +200,7 @@ def _map_applicable_rules_to_diffs(
 
 
 def _rule_abspath(wd: str, rule: str) -> str:
-    rules_project_root = _arkcompiler_development_rules_root(wd)
+    rules_project_root = _rules_root(wd)
     rules_dir = abspath_join(rules_project_root, "REVIEW_RULES")
     rule_abspath = abspath_join(rules_dir, rule)
 
@@ -233,23 +230,32 @@ def _combine_diff(diff: Diff) -> str:
     return "\n\n".join(diffs)
 
 
-def _arkcompiler_development_rules_root(wd: str) -> str:
-    project, _ = ARKCOMPILER_DEVELOPMENT_RULES
-    return abspath_join(wd, project)
+def _rules_root(wd: str) -> str:
+    return abspath_join(wd, _RULES_PROJECT)
 
 
-def _init_project(wd: str, project: str, branch: str) -> None:
-    root = abspath_join(wd, project)
+def _init_rules_project(wd: str, info: ProjectInfo) -> None:
+    root = abspath_join(wd, _RULES_PROJECT)
+    os.makedirs(root, exist_ok=False)
+    _init_project_at_root(root, info.remote, info.project, info.revision)
+
+
+def _init_project(wd: str, info: ProjectInfo) -> None:
+    root = abspath_join(wd, info.project)
     os.makedirs(root, exist_ok=True)
+    _init_project_at_root(root, info.remote, info.project, info.revision)
+
+
+def _init_project_at_root(root: str, remote: str, project: str, rev: str) -> None:
     assert os.path.exists(root), f"Root {root} for cloning does not exist"
     repo = git.Repo.init(path=root, mkdir=False)
     remote_name = "origin"
-    repo.create_remote(remote_name, f"https://gitcode.com/{project}.git")
+    repo.create_remote(remote_name, f"https://{remote}/{project}.git")
     tries_left = 5
     while tries_left > 0:
         try:
-            repo.git.fetch("origin", branch, "--depth=1")
-            # os.system(f"(cd {root} && git fetch {remote_name} {branch} --depth=1)")
+            repo.git.fetch("origin", rev, "--depth=1")
+            # os.system(f"(cd {root} && git fetch {remote_name} {rev} --depth=1)")
             break
         except Exception as e:
             if tries_left > 0:
@@ -260,7 +266,7 @@ def _init_project(wd: str, project: str, branch: str) -> None:
                 time.sleep(5 * (5 - tries_left))
             else:
                 raise e
-    repo.git.checkout(branch)
+    repo.git.checkout(rev)
 
 
 def _diff_hash(diff: str) -> str:
@@ -306,7 +312,7 @@ def _load_rules_from_config(cfg: str) -> dict[str, set[str]]:
     return review_rules
 
 
-def _load_rules_from_repo_root(project_root: str) -> dict[str, set[str]]:
+def _load_rules_from_root(project_root: str) -> dict[str, set[str]]:
     assert os.path.exists(
         project_root
     ), f"No project root {project_root} for development rules was found"
@@ -368,14 +374,3 @@ def _get_revision(root: str) -> str:
     stdout = res.stdout.decode("utf-8")
 
     return stdout.strip()
-
-
-def _create_devagent_config(wd: str) -> str:
-    devagent_config_path = os.path.abspath(os.path.join(wd, ".devagent.toml"))
-    with open(devagent_config_path, "w") as cfg:
-        cfg.write(f'provider = "{CONFIG.DEVAGENT_PROVIDER}"\n')
-        cfg.write(f'model = "{CONFIG.DEVAGENT_MODEL}"\n')
-        cfg.write(f"auto_approve_code = false\n")
-        cfg.write(f"[providers.{CONFIG.DEVAGENT_PROVIDER}]\n")
-        cfg.write(f'api_key = "{CONFIG.DEVAGENT_API_KEY}"\n')
-    return devagent_config_path

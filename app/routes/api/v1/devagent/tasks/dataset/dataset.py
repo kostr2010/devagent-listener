@@ -2,7 +2,8 @@ import enum
 import fastapi
 import typing
 
-from app.db.async_db import AsyncSession
+from app.db.async_db import AsyncDBSession
+from app.nexus.repo import NexusRepo
 
 from app.routes.api.v1.devagent.tasks.dataset.actions.errors import (
     action_errors,
@@ -23,14 +24,14 @@ Response = ErrorsResponse | UserFeedbackResponse
 
 
 async def dataset(
-    db: AsyncSession,
+    db: AsyncDBSession,
+    nexus: NexusRepo,
     action: int,
-    query_params: dict[str, typing.Any],
 ) -> Response:
     """Create dataset from the information stored in db
 
     Args:
-        postgres (AsyncSession): db connection used to query database
+        db (AsyncSession): db connection used to query database
         action (int): Action required by the endpoint. Can be one of the `Action` enum
         query_params (dict[str, typing.Any]): Payload for the endpoint. Interpreted differently depending on the action
 
@@ -44,10 +45,10 @@ async def dataset(
     _validate_action(action)
 
     if Action.ACTION_ERRORS.value == action:
-        return await action_errors(db=db)
+        return await action_errors(db=db, nexus=nexus)
 
     if Action.ACTION_USER_FEEDBACK.value == action:
-        return await action_user_feedback(db=db)
+        return await action_user_feedback(db=db, nexus=nexus)
 
     raise fastapi.HTTPException(
         status_code=500,

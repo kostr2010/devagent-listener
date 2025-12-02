@@ -5,16 +5,16 @@ import tempfile
 import shutil
 import datetime
 
-from app.db.async_db import AsyncSession
+from app.db.async_db import AsyncDBSession
 from app.db.schemas.user_feedback import Feedback
-from app.nexus.api import upload_file_to_nexus
+from app.nexus.repo import NexusRepo
 
 
 class Response(pydantic.BaseModel):
     archive: str
 
 
-async def action_user_feedback(db: AsyncSession) -> Response:
+async def action_user_feedback(db: AsyncDBSession, nexus: NexusRepo) -> Response:
     try:
         wd = tempfile.mkdtemp()
 
@@ -63,7 +63,7 @@ async def action_user_feedback(db: AsyncSession) -> Response:
             f"user-feedback-{datetime.datetime.now().date()}-{int(datetime.datetime.now().timestamp())}",
         )
         shutil.make_archive(archive, "zip", wd, ".")
-        archive_url = upload_file_to_nexus(
+        archive_url = nexus.upload_file(
             f"{archive}.zip", os.path.basename(f"{archive}.zip")
         )
     except fastapi.HTTPException as httpe:

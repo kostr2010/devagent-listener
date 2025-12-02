@@ -1,9 +1,9 @@
 import enum
 import fastapi
 import typing
-import redis.asyncio
 
-from app.db.async_db import AsyncSession
+from app.redis.async_redis import AsyncRedis
+from app.db.async_db import AsyncDBSession
 
 from app.routes.api.v1.devagent.tasks.user_feedback.actions.get import (
     action_get,
@@ -29,16 +29,16 @@ Response = GetResponse | SetResponse | UpdateResponse
 
 
 async def user_feedback(
-    db: AsyncSession,
-    redis: redis.asyncio.Redis,
+    db: AsyncDBSession,
+    redis: AsyncRedis,
     action: int,
     query_params: dict[str, typing.Any],
 ) -> Response:
     """Receive user feedback for the devagent alarm and record it in persistent storage
 
     Args:
-        postgres (AsyncSession): Database connection for persistent storage
-        redis (redis.asyncio.Redis): Redis connection to take task metadata from
+        db (AsyncSession): Database connection for persistent storage
+        redis (AsyncRedis): Redis connection to take task metadata from
         action (int): Action required by the endpoint. Can be one of the `Action` enum
         query_params (dict): Payload for the endpoint. Interpreted differently depending on the action
 
