@@ -44,12 +44,13 @@ class AsyncRedis:
 
         assert vals_written == 1
 
-    async def get_task_info(self, task_id: str) -> dict[str, str]:
+    async def get_task_info(self, task_id: str) -> dict[str, str] | None:
         # since async redis is used, it is always Awaitable
         task_info = await self._conn.hgetall(task_id)  # type: ignore
 
         if len(task_info.keys()) == 0:
-            raise Exception(f"Task info for task {task_id} expired or never existed")
+            # task_info expired or never existed
+            return None
 
         decoded = dict(
             (k.decode("utf-8"), v.decode("utf-8")) for k, v in task_info.items()
