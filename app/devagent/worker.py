@@ -126,17 +126,16 @@ def review_patches(
 
         validated_tasks = [validated_tasks[i] for i in range(start_idx, end_idx)]
 
-        results = list()
+        results = list[ReviewPatchResult]()
         for task in validated_tasks:
             project_root = os.path.abspath(os.path.join(task.wd, task.project))
             patch_review_result = review_patch(
                 project_root, task.patch_path, task.rule_path, task.context_path
             )
-            results.append(patch_review_result)
+            filtered_result = filter_violations(patch_review_result, task)
+            results.append(filtered_result)
 
-        filtered_results = [filter_violations(result, task) for result in results]
-
-        res = [review.model_dump() for review in filtered_results]
+        res = [review.model_dump() for review in results]
     except Exception:
         raise celery.exceptions.TaskError(_exception_message(log_tag))
 

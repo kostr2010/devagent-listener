@@ -36,6 +36,12 @@ async def action_set(
 
         task_info = await redis.get_task_info(query_params.task_id)
 
+        if task_info == None:
+            raise fastapi.HTTPException(
+                status_code=400,
+                detail=f"Task info for task {query_params.task_id} expired or never existed",
+            )
+
         ark_dev_rules_rev_key = task_info_rules_revision_key()
         ark_rev_rules_rev = task_info[ark_dev_rules_rev_key]
 

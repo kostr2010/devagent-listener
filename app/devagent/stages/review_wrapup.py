@@ -95,6 +95,9 @@ async def _store_errors_to_postgres(
     task_info = await redis.get_task_info(task_id)
     await redis.close()
 
+    if task_info == None:
+        raise Exception(f"Task info for task {task_id} expired or never existed")
+
     ark_dev_rules_rev_key = task_info_rules_revision_key()
     ark_dev_rules_rev = task_info[ark_dev_rules_rev_key]
 
