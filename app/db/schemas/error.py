@@ -18,3 +18,12 @@ class Error(SQL_BASE):  # type: ignore
     patch = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     rule = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     message = sqlalchemy.Column(sqlalchemy.String, nullable=False)
+    created_at = sqlalchemy.Column(
+        sqlalchemy.DateTime, default=sqlalchemy.sql.func.now(), nullable=True
+    )
+    updated_at = sqlalchemy.Column(
+        sqlalchemy.DateTime,
+        default=sqlalchemy.func.now(),
+        onupdate=sqlalchemy.func.now(),
+        nullable=True,
+    )

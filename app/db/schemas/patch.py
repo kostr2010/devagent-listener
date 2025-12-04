@@ -15,3 +15,12 @@ class Patch(SQL_BASE):  # type: ignore
     )
     content = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     context = sqlalchemy.Column(sqlalchemy.String, nullable=True)
+    created_at = sqlalchemy.Column(
+        sqlalchemy.DateTime, default=sqlalchemy.sql.func.now(), nullable=True
+    )
+    updated_at = sqlalchemy.Column(
+        sqlalchemy.DateTime,
+        default=sqlalchemy.func.now(),
+        onupdate=sqlalchemy.func.now(),
+        nullable=True,
+    )

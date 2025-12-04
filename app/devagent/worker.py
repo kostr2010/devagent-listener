@@ -1,6 +1,5 @@
 import celery  # type: ignore
 import inspect
-import multiprocessing
 import celery.exceptions  # type: ignore
 import traceback
 import tempfile
