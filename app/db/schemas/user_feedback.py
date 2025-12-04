@@ -28,6 +28,15 @@ class UserFeedback(SQL_BASE):  # type: ignore
     file = sqlalchemy.Column(sqlalchemy.String, nullable=False)
     line = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
     feedback = sqlalchemy.Column(sqlalchemy.Integer, nullable=False)
+    created_at = sqlalchemy.Column(
+        sqlalchemy.DateTime, default=sqlalchemy.sql.func.now(), nullable=True
+    )
+    updated_at = sqlalchemy.Column(
+        sqlalchemy.DateTime,
+        default=sqlalchemy.sql.func.now(),
+        onupdate=sqlalchemy.sql.func.now(),
+        nullable=True,
+    )
 
     @sqlalchemy.orm.validates("feedback")
     def validate_feedback(self, key: str, value: int) -> int:
