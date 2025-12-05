@@ -51,7 +51,7 @@ async def post_feedback_stats() -> None:
         errors = await db_session.select_errors(lambda: Error.created_at.isnot(None))
     await db_conn.close()
 
-    report = _generate_feedback_report(user_feedback, patches)
+    report = _generate_report(user_feedback, patches, errors)
 
     payload = json.dumps({"body": report})
     headers = {
@@ -71,8 +71,8 @@ async def post_feedback_stats() -> None:
     print(data)
 
 
-def _generate_feedback_report(
-    user_feedback: list[UserFeedback], patches: list[Patch]
+def _generate_report(
+    user_feedback: list[UserFeedback], patches: list[Patch], errors: list[Error]
 ) -> str:
     today = datetime.datetime.today()
     today_str = today.strftime("%Y-%m-%d")
@@ -85,16 +85,27 @@ def _generate_feedback_report(
             user_feedback,
         )
     )
-    feedback_today_summary = _summarize_feedback(feedback_today)
     patches_today = list[Patch](
         filter(
             lambda p: p.created_at.date() == today.date(),
             patches,
         )
     )
+    errors_today = list[Error](
+        filter(
+            lambda e: e.created_at.date() == today.date(),
+            errors,
+        )
+    )
 
     report += f"### Feedback today: {today_str}\n\n"
-    report += _serialize_feedback_summary(feedback_today_summary)
+    report += _serialize_feedback_summary(feedback_today)
+
+    report += f"### False positives today: {today_str}\n\n"
+    report += _serialize_false_positives(feedback_today, patches_today)
+
+    report += f"### Errors today: {today_str}\n\n"
+    report += _serialize_errors(errors_today, patches_today)
 
     start_date = today - datetime.timedelta(days=7)
     start_date_str = start_date.strftime("%Y-%m-%d")
@@ -105,42 +116,93 @@ def _generate_feedback_report(
             user_feedback,
         )
     )
-    feedback_in_timeframe_summary = _summarize_feedback(feedback_in_timeframe)
-
-    report += f"### False positives today: {today_str}\n\n"
-    report += _serialize_false_positives(feedback_today, patches_today)
 
     report += f"### Feedback in time frame: {start_date_str} - {today_str}\n\n"
-    report += _serialize_feedback_summary(feedback_in_timeframe_summary)
-
-    feedback_total_summary = _summarize_feedback(user_feedback)
+    report += _serialize_feedback_summary(feedback_in_timeframe)
 
     report += f"### Feedback entire time:\n\n"
-    report += _serialize_feedback_summary(feedback_total_summary)
+    report += _serialize_feedback_summary(user_feedback)
 
     return report
 
 
-def _summarize_feedback(feedback: list[UserFeedback]) -> UserFeedbackSummary:
+def _serialize_errors(errors: list[Error], patches: list[Patch]) -> str:
+    patch_mappping = {str(p.id): p for p in patches}
+    report = ""
+    for e in errors:
+        issue_url = _create_issue_for_error(e, patch_mappping[str(e.patch)])
+        report += f"- {issue_url}\n"
+    report += "\n"
+
+    return report
+
+
+def _create_issue_for_error(error: Error, patch: Patch) -> str:
+    body = ""
+    body += "## General info:\n\n"
+    body += "```\n"
+    body += f"PROJECT={str(error.project)}\n"
+    body += f"PROJECT_REVISION={str(error.rev_project)}\n"
+    body += f"RULES_REVISION={str(error.rev_arkcompiler_development_rules)}\n"
+    body += f"DEVAGENT_REVISION={str(error.rev_devagent)}\n"
+    body += f"RULE={str(error.rule)}\n"
+    body += f"MESSAGE={str(error.message)}\n"
+    body += "\n"
+    body += "```\n"
+    body += "\n"
+    body += "## Context:\n"
+    body += "\n"
+    body += "```\n"
+    body += str(patch.context)
+    body += "\n"
+    body += "```\n"
+    body += "\n"
+    body += "## Patch:\n"
+    body += "\n"
+    body += "```patch\n"
+    body += str(patch.content)
+    body += "\n"
+    body += "```\n"
+    body += "\n"
+    conn = http.client.HTTPSConnection("api.gitcode.com")
+    conn.request(
+        "POST",
+        f"/api/v5/repos/nazarovkonstantin/issues?access_token={GITCODE_TOKEN}",
+        json.dumps(
+            {
+                "repo": "arkcompiler_development_rules",
+                "title": f"[Error] {str(error.rule)}/{str(patch.id)}",
+                "body": body,
+            }
+        ),
+        {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    response = conn.getresponse()
+
+    data = json.loads(response.read())
+
+    return str(data["html_url"])
+
+
+def _serialize_feedback_summary(feedback: list[UserFeedback]) -> str:
     feedback_summary = dict[str, list[int]]()
 
     for fb in feedback:
-        rule = str(fb.rule)
-        current_summary = feedback_summary.get(rule, list[int]([0, 0, 0, 0]))
+        current_summary = feedback_summary.get(str(fb.rule), list[int]([0, 0, 0, 0]))
         current_summary[int(fb.feedback)] = current_summary[int(fb.feedback)] + 1
-        feedback_summary.update({rule: current_summary})
+        feedback_summary.update({str(fb.rule): current_summary})
 
-    return feedback_summary
+    report = ""
+    report += "| Rule name | TP | FP |\n"
+    report += "|-----------|----|----|\n"
+    for rule, stats in feedback_summary.items():
+        report += f"|`{rule}`|{stats[Feedback.TRUE_POSITIVE.value]}|{stats[Feedback.FALSE_POSITIVE.value]}|\n"
+    report += "\n"
 
-
-def _serialize_feedback_summary(summary: UserFeedbackSummary) -> str:
-    res = ""
-    res += "| Rule name | TP | FP |\n"
-    res += "|-----------|----|----|\n"
-    for rule, feedback in summary.items():
-        res += f"|`{rule}`|{feedback[Feedback.TRUE_POSITIVE.value]}|{feedback[Feedback.FALSE_POSITIVE.value]}|\n"
-    res += "\n"
-    return res
+    return report
 
 
 def _serialize_false_positives(
