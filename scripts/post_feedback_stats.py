@@ -11,6 +11,8 @@ sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
 from app.db.async_db import AsyncDBConnectionConfig, AsyncDBConnection
 from app.db.schemas.user_feedback import UserFeedback, Feedback
+from app.db.schemas.error import Error
+from app.db.schemas.patch import Patch
 
 dotenv.load_dotenv()
 
@@ -21,23 +23,6 @@ DB_PASSWORD = os.getenv("DB_PASSWORD")
 DB_USER = os.getenv("DB_USER")
 DB_DB = os.getenv("DB_DB")
 DB_HOSTNAME = os.getenv("DB_HOSTNAME")
-
-
-class Issue(pydantic.BaseModel):
-    id: int
-    title: str
-    number: int
-
-
-class Target(pydantic.BaseModel):
-    issue: Issue
-
-
-class Response(pydantic.BaseModel):
-    id: int
-    body: str
-    user: object
-    target: Target
 
 
 UserFeedbackSummary = dict[str, list[int]]
@@ -62,9 +47,11 @@ async def post_feedback_stats() -> None:
         user_feedback = await db_session.select_user_feebdack(
             lambda: UserFeedback.created_at.isnot(None)
         )
+        patches = await db_session.select_patches(lambda: Patch.created_at.isnot(None))
+        errors = await db_session.select_errors(lambda: Error.created_at.isnot(None))
     await db_conn.close()
 
-    report = _generate_report(user_feedback)
+    report = _generate_feedback_report(user_feedback, patches)
 
     payload = json.dumps({"body": report})
     headers = {
@@ -81,11 +68,12 @@ async def post_feedback_stats() -> None:
 
     response = conn.getresponse()
     data = response.read().decode("utf-8")
-    model = Response.model_validate_json(data)
-    print(model.model_dump_json())
+    print(data)
 
 
-def _generate_report(user_feedback: list[UserFeedback]) -> str:
+def _generate_feedback_report(
+    user_feedback: list[UserFeedback], patches: list[Patch]
+) -> str:
     today = datetime.datetime.today()
     today_str = today.strftime("%Y-%m-%d")
     report = ""
@@ -93,11 +81,17 @@ def _generate_report(user_feedback: list[UserFeedback]) -> str:
 
     feedback_today = list[UserFeedback](
         filter(
-            lambda user_feedback: user_feedback.created_at.date() == today.date(),
+            lambda fb: fb.created_at.date() == today.date(),
             user_feedback,
         )
     )
     feedback_today_summary = _summarize_feedback(feedback_today)
+    patches_today = list[Patch](
+        filter(
+            lambda p: p.created_at.date() == today.date(),
+            patches,
+        )
+    )
 
     report += f"### Feedback today: {today_str}\n\n"
     report += _serialize_feedback_summary(feedback_today_summary)
@@ -112,6 +106,9 @@ def _generate_report(user_feedback: list[UserFeedback]) -> str:
         )
     )
     feedback_in_timeframe_summary = _summarize_feedback(feedback_in_timeframe)
+
+    report += f"### False positives today: {today_str}\n\n"
+    report += _serialize_false_positives(feedback_today, patches_today)
 
     report += f"### Feedback in time frame: {start_date_str} - {today_str}\n\n"
     report += _serialize_feedback_summary(feedback_in_timeframe_summary)
@@ -144,6 +141,93 @@ def _serialize_feedback_summary(summary: UserFeedbackSummary) -> str:
         res += f"|`{rule}`|{feedback[Feedback.TRUE_POSITIVE.value]}|{feedback[Feedback.FALSE_POSITIVE.value]}|\n"
     res += "\n"
     return res
+
+
+def _serialize_false_positives(
+    feedback: list[UserFeedback], patches: list[Patch]
+) -> str:
+    patch_mappping = {str(p.id): p for p in patches}
+    group_by_patch_by_rule = dict[str, dict[str, list[UserFeedback]]]()
+
+    for fb in feedback:
+        if fb.feedback != Feedback.FALSE_POSITIVE.value:
+            continue
+        patch_name = str(fb.patch)
+        rule_name = str(fb.rule)
+        rule_to_feedback = group_by_patch_by_rule.get(
+            patch_name, dict[str, list[UserFeedback]]()
+        )
+        feedback_list = rule_to_feedback.get(rule_name, list[UserFeedback]())
+        feedback_list.append(fb)
+        rule_to_feedback.update({rule_name: feedback_list})
+        group_by_patch_by_rule.update({patch_name: rule_to_feedback})
+
+    report = ""
+    for patch_name, rule_to_feedback in group_by_patch_by_rule.items():
+        patch = patch_mappping[patch_name]
+        for rule_name, feedback_list in rule_to_feedback.items():
+            issue_url = _create_issue_for_false_positive(
+                rule_name, patch, feedback_list
+            )
+            report += f"- {issue_url}\n"
+    report += "\n"
+
+    return report
+
+
+def _create_issue_for_false_positive(
+    rule_name: str, patch: Patch, feedback_list: list[UserFeedback]
+) -> str:
+    body = ""
+    body += "## General info:\n\n"
+    body += "```\n"
+    fb = feedback_list[0]
+    body += f"PROJECT={str(fb.project)}\n"
+    body += f"PROJECT_REVISION={str(fb.rev_project)}\n"
+    body += f"RULES_REVISION={str(fb.rev_arkcompiler_development_rules)}\n"
+    body += f"DEVAGENT_REVISION={str(fb.rev_devagent)}\n"
+    body += f"RULE={str(fb.rule)}\n"
+    body += "\n"
+    body += "```\n"
+    body += "## False positives:\n\n"
+    for feedback in feedback_list:
+        body += f"- {str(feedback.file)}:{str(feedback.line)}\n"
+    body += "\n"
+    body += "## Context:\n"
+    body += "\n"
+    body += "```\n"
+    body += str(patch.context)
+    body += "\n"
+    body += "```\n"
+    body += "\n"
+    body += "## Patch:\n"
+    body += "\n"
+    body += "```patch\n"
+    body += str(patch.content)
+    body += "\n"
+    body += "```\n"
+    body += "\n"
+    conn = http.client.HTTPSConnection("api.gitcode.com")
+    conn.request(
+        "POST",
+        f"/api/v5/repos/nazarovkonstantin/issues?access_token={GITCODE_TOKEN}",
+        json.dumps(
+            {
+                "repo": "arkcompiler_development_rules",
+                "title": f"[FP] {rule_name}/{str(patch.id)}",
+                "body": body,
+            }
+        ),
+        {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+    )
+    response = conn.getresponse()
+
+    data = json.loads(response.read())
+
+    return str(data["html_url"])
 
 
 if __name__ == "__main__":
