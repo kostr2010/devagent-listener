@@ -1,0 +1,10 @@
+[
+  {
+    "name": "rule1.md",
+    "dirs": ["project1/dir1"]
+  },
+  {
+    "name": "rule1.md",
+    "dirs": ["project2/dir1"]
+  }
+]

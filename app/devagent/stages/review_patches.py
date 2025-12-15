@@ -4,6 +4,7 @@ import pydantic
 import typing
 
 from app.devagent.stages.review_init import DevagentTask
+from app.utils.path import is_subpath
 
 
 class DevagentError(pydantic.BaseModel):
@@ -102,6 +103,8 @@ def review_patch(
 
     result = DevagentReview.model_validate_json(stdout)
 
+    print(f"RULE: {rule}\n\nRESULT: {stdout}")
+
     for violation in result.violations:
         # NOTE: fixup for LLM rule name hallucinations
         violation.rule = rule
@@ -124,6 +127,9 @@ def filter_violations(res: ReviewPatchResult, task: DevagentTask) -> ReviewPatch
         if _is_violation_valid(violation, task)
     ]
 
+    if task.rule_once and len(filtered_violations) > 1:
+        filtered_violations = [filtered_violations[0]]
+
     return ReviewPatchResult(
         project=res.project,
         error=res.error,
@@ -145,8 +151,12 @@ def _is_violation_valid(violation: DevagentViolation, task: DevagentTask) -> boo
     alarm_file = violation.file
     alarm_file_path = os.path.join(task.project, alarm_file)
 
+    for dir in task.rule_skip:
+        if is_subpath(dir, alarm_file_path):
+            return False
+
     for dir in task.rule_dirs:
-        if dir == os.path.commonpath([dir, alarm_file_path]):
+        if is_subpath(dir, alarm_file_path):
             return True
 
     return False
