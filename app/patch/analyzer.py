@@ -21,6 +21,7 @@ class FileInfo:
     type: Literal[
         "other",
         "runtime",
+        "runtime ETS stdlib",
         "front-end",
         "front-end parser",
         "front-end checker",
@@ -116,7 +117,9 @@ class FileInfo:
                     self.type = "front-end code generator"
 
         elif "static_core/" in path:
-            if FileInfo._is_cpp_file(path):
+            if "stdlib/" in path:
+                self.type = "runtime ETS stdlib"
+            elif FileInfo._is_cpp_file(path):
                 self.type = "runtime"
 
     def enrich(self) -> None:
@@ -238,6 +241,28 @@ class PatchAnalyzer:
                 num_removed += fi.num_removed_lines
         return (num_added, num_removed)
 
+    def _countRuntimeContribs(self) -> tuple[int, int]:
+        """Private: Yet another contrib counter."""
+
+        num_added: int = 0
+        num_removed: int = 0
+        for fi in self.file_facts:
+            if "runtime" in fi.type and not "test" in fi.type:
+                num_added += fi.num_added_lines
+                num_removed += fi.num_removed_lines
+        return (num_added, num_removed)
+
+    def _countETSStdlibContribs(self) -> tuple[int, int]:
+        """Private: Yet another contrib counter."""
+
+        num_added: int = 0
+        num_removed: int = 0
+        for fi in self.file_facts:
+            if fi.type == "runtime ETS stdlib":
+                num_added += fi.num_added_lines
+                num_removed += fi.num_removed_lines
+        return (num_added, num_removed)
+
     def _countParserContribs(self) -> tuple[int, int]:
         """Private: Yet another contrib counter."""
 
@@ -351,7 +376,7 @@ class PatchAnalyzer:
         fe_contribs = self._countFrontendContribs()
 
         if fe_contribs[0] + fe_contribs[1] == 0:
-            return "This patch does not contribute to the front-end."
+            return "This patch does not contribute to the front-end.\n\n"
 
         summary = "This patch contributes to the front-end main code base.\n\n"
         summary += f"Overall, {fe_contribs[0]} LoC "
@@ -404,7 +429,7 @@ class PatchAnalyzer:
         num_modified_tests = self._countModifiedTests()
 
         if num_added_tests + num_removed_tests + num_modified_tests == 0:
-            return "The patch does not contribute to the tests."
+            return "The patch does not contribute to the tests.\n\n"
 
         summary = "This patch contributes to the tests.\n\n"
 
@@ -439,6 +464,34 @@ class PatchAnalyzer:
         if num_without_assertions > 0:
             summary += f"The patch has {num_without_assertions} "
             summary += "positive tests which decrease assertion usage"
+            summary += ".\n\n"
+
+        return summary
+
+    def verboseRuntimeSummary(self) -> str:
+        summary = ""
+        """Based on the patch, summarizes runtime contribution
+        informartion into a human-readable string.
+        """
+
+        rt_contribs = self._countRuntimeContribs()
+
+        if rt_contribs[0] + rt_contribs[1] == 0:
+            return "This patch does not contribute to the runtime.\n\n"
+
+        summary = "This patch contributes to the runtime main code base.\n\n"
+        summary += f"Overall, {rt_contribs[0]} LoC "
+        summary += "are added, and "
+        summary += f"{rt_contribs[1]} LoC "
+        summary += "are removed"
+        summary += ".\n\n"
+
+        stdlib_contribs = self._countETSStdlibContribs()
+        if stdlib_contribs[0] + stdlib_contribs[1]:
+            summary += f"In particular, {stdlib_contribs[0]} LoC "
+            summary += "are added to the ETS stdlib, "
+            summary += f"{stdlib_contribs[1]} LoC "
+            summary += "are removed from the ETS stdlib"
             summary += ".\n\n"
 
         return summary

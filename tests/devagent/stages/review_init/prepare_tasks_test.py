@@ -2,7 +2,7 @@ import unittest
 import shutil
 import os
 
-from app.devagent.stages.review_init import load_rules, prepare_tasks
+from app.devagent.stages.review_init import load_rules, prepare_tasks, DevagentRule
 from app.devagent.stages.review_init import (
     _map_applicable_rules_to_diffs,
     _generate_patch_context,
@@ -86,7 +86,10 @@ class PrepareTasksTest(unittest.TestCase):
                 self.assertEqual(context.read(), gold)
             self.assertTrue(os.path.exists(task.rule_path))
             self.assertListEqual(
-                rules[os.path.basename(task.rule_path)], task.rule_dirs
+                [r for r in rules if r.name == os.path.basename(task.rule_path)][
+                    0
+                ].dirs,
+                task.rule_dirs,
             )
         task_rules = [os.path.basename(task.rule_path) for task in tasks]
         self.assertListEqual(
@@ -116,7 +119,10 @@ class PrepareTasksTest(unittest.TestCase):
                 self.assertEqual(context.read(), gold)
             self.assertTrue(os.path.exists(task.rule_path))
             self.assertListEqual(
-                rules[os.path.basename(task.rule_path)], task.rule_dirs
+                [r for r in rules if r.name == os.path.basename(task.rule_path)][
+                    0
+                ].dirs,
+                task.rule_dirs,
             )
         task_rules = [os.path.basename(task.rule_path) for task in tasks]
         self.assertListEqual(
@@ -149,7 +155,10 @@ class PrepareTasksTest(unittest.TestCase):
                 self.assertEqual(context.read(), gold)
             self.assertTrue(os.path.exists(task.rule_path))
             self.assertListEqual(
-                rules[os.path.basename(task.rule_path)], task.rule_dirs
+                [r for r in rules if r.name == os.path.basename(task.rule_path)][
+                    0
+                ].dirs,
+                task.rule_dirs,
             )
         task_rules = [os.path.basename(task.rule_path) for task in tasks]
         self.assertListEqual(
@@ -167,48 +176,80 @@ class MapApplicableRulesToDiffsTest(unittest.TestCase):
         rules = load_rules(wd)
 
         res = _map_applicable_rules_to_diffs(rules, RT_EMPTY)
-        ans = dict[str, str]()
-        self.assertDictEqual(res, ans)
+        ans = list[tuple[DevagentRule, str]]()
+        self.assertListEqual(res, ans)
 
         res = _map_applicable_rules_to_diffs(rules, FE_EMPTY)
-        ans = dict[str, str]()
-        self.assertDictEqual(res, ans)
+        ans = list[tuple[DevagentRule, str]]()
+        self.assertListEqual(res, ans)
 
     def test_basic1_empty(self) -> None:
         wd = _get_wd("basic1")
         rules = load_rules(wd)
 
         res = _map_applicable_rules_to_diffs(rules, P1_EMPTY)
-        ans = dict[str, str]()
-        self.assertDictEqual(res, ans)
+        ans = list[tuple[DevagentRule, str]]()
+        self.assertListEqual(res, ans)
 
         res = _map_applicable_rules_to_diffs(rules, P2_EMPTY)
-        ans = dict[str, str]()
-        self.assertDictEqual(res, ans)
+        ans = list[tuple[DevagentRule, str]]()
+        self.assertListEqual(res, ans)
 
     def test_basic1_p1_diff1(self) -> None:
         wd = _get_wd("basic1")
         rules = load_rules(wd)
         project1_combined_diff = "\n\n".join([file.diff for file in P1_DIFF1.files])
         res = _map_applicable_rules_to_diffs(rules, P1_DIFF1)
-        ans = {
-            "rule1.md": project1_combined_diff,
-            "rule3.md": project1_combined_diff,
-            "rule4.md": project1_combined_diff,
-        }
-        self.assertDictEqual(res, ans)
+        ans = [
+            (
+                DevagentRule(name="rule1.md", dirs=["project1/dir1/", "project2/dir1"]),
+                project1_combined_diff,
+            ),
+            (
+                DevagentRule(
+                    name="rule3.md",
+                    dirs=["project1/dir2", "project2/dir3"],
+                    skip=["project2/dir3/dir"],
+                ),
+                project1_combined_diff,
+            ),
+            (
+                DevagentRule(name="rule4.md", dirs=["project1/dir2", "project2/dir4"]),
+                project1_combined_diff,
+            ),
+        ]
+        self.assertListEqual(
+            [(rule.model_dump(), diff) for rule, diff in res],
+            [(rule.model_dump(), diff) for rule, diff in ans],
+        )
 
     def test_basic1_2_diff1(self) -> None:
         wd = _get_wd("basic1")
         rules = load_rules(wd)
         project2_combined_diff = "\n\n".join([file.diff for file in P2_DIFF1.files])
         res = _map_applicable_rules_to_diffs(rules, P2_DIFF1)
-        ans = {
-            "rule1.md": project2_combined_diff,
-            "rule2.md": project2_combined_diff,
-            "rule3.md": project2_combined_diff,
-        }
-        self.assertDictEqual(res, ans)
+        ans = [
+            (
+                DevagentRule(name="rule1.md", dirs=["project1/dir1/", "project2/dir1"]),
+                project2_combined_diff,
+            ),
+            (
+                DevagentRule(name="rule2.md", dirs=["project2", "project2/dir3/"]),
+                project2_combined_diff,
+            ),
+            (
+                DevagentRule(
+                    name="rule3.md",
+                    dirs=["project1/dir2", "project2/dir3"],
+                    skip=["project2/dir3/dir"],
+                ),
+                project2_combined_diff,
+            ),
+        ]
+        self.assertListEqual(
+            [(rule.model_dump(), diff) for rule, diff in res],
+            [(rule.model_dump(), diff) for rule, diff in ans],
+        )
 
 
 if __name__ == "__main__":

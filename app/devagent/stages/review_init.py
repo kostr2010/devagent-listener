@@ -8,10 +8,11 @@ import git
 import time
 import pydantic
 import typing
+import json
 
 from app.redis.async_redis import AsyncRedisConfig, AsyncRedis
 from app.diff.models.diff import Diff
-from app.utils.path import abspath_join
+from app.utils.path import abspath_join, is_subpath
 from app.patch.analyzer import PatchAnalyzer
 from app.redis.schemas.task_info import (
     task_info_task_id_key,
@@ -25,6 +26,14 @@ from app.redis.schemas.task_info import (
 _RULES_PROJECT = "review_rules"
 
 
+class DevagentRule(pydantic.BaseModel):
+    name: str
+    dirs: list[str]
+    skip: list[str] = []
+    once: bool = False
+    disable: bool = False
+
+
 class DevagentTask(pydantic.BaseModel):
     wd: str
     project: str
@@ -32,6 +41,8 @@ class DevagentTask(pydantic.BaseModel):
     context_path: str
     rule_path: str
     rule_dirs: list[str]
+    rule_skip: list[str]
+    rule_once: bool
 
 
 class ProjectInfo(pydantic.BaseModel):
@@ -57,38 +68,50 @@ def populate_workdir(
         _init_project(wd, project_info)
 
 
-def load_rules(wd: str) -> dict[str, list[str]]:
+def load_rules(wd: str) -> list[DevagentRule]:
     ark_dev_rules_root = _rules_root(wd)
-    review_rules = _load_rules_from_root(ark_dev_rules_root)
-    filtered_rules = _remove_non_existing_dirs(wd, review_rules)
-    rule_to_dirs = _invert_loaded_rules(filtered_rules)
+    assert os.path.exists(
+        ark_dev_rules_root
+    ), f"[load_rules] No project root {ark_dev_rules_root} for development rules was found"
 
-    for rule, dirs in rule_to_dirs.items():
-        rule_path = _rule_abspath(wd, rule)
+    rules_config_path = abspath_join(ark_dev_rules_root, ".REVIEW_RULES.json")
+    assert os.path.exists(
+        rules_config_path
+    ), f"[load_rules] No config file {rules_config_path} was found in the project root {ark_dev_rules_root}"
+
+    with open(rules_config_path) as cfg:
+        rules = [DevagentRule.model_validate(rule) for rule in json.loads(cfg.read())]
+
+    filtered_rules = [rule for rule in rules if rule.disable == False]
+
+    assert len(filtered_rules) == len(
+        set([rule.name for rule in filtered_rules])
+    ), "[load_rules] Loaded rules have duplicates, please check"
+
+    for rule in filtered_rules:
+        rule_path = _rule_abspath(wd, rule.name)
         assert os.path.exists(
             rule_path
-        ), f"[load_rules] Sanity check failed for rule {rule_path}"
-        for dir in dirs:
-            dir_path = abspath_join(wd, dir)
-            assert os.path.exists(
-                dir_path
-            ), f"[load_rules] Sanity check failed for dir {dir_path}"
+        ), f"[load_rules] Rule does not exist: {rule_path}"
 
-    return rule_to_dirs
+    return filtered_rules
 
 
 def prepare_tasks(
-    task_id: str, wd: str, rules: dict[str, list[str]], diffs: list[Diff]
+    task_id: str, wd: str, rules: list[DevagentRule], diffs: list[Diff]
 ) -> list[DevagentTask]:
     tasks = list[DevagentTask]()
 
     for diff in diffs:
         mapping = _map_applicable_rules_to_diffs(rules, diff)
 
+        if len(mapping) == 0:
+            continue
+
         emitted_diffs = dict[str, str]()
         patch_contexts = dict[str, str]()
 
-        for rule, rule_diff in mapping.items():
+        for rule, rule_diff in mapping:
             diff_hash = _diff_hash(rule_diff)
             existing_patch = emitted_diffs.get(diff_hash, None)
             if existing_patch:
@@ -110,8 +133,10 @@ def prepare_tasks(
                 project=diff.project,
                 patch_path=patch_path,
                 context_path=context_path,
-                rule_path=_rule_abspath(wd, rule),
-                rule_dirs=rules[rule],
+                rule_path=_rule_abspath(wd, rule.name),
+                rule_dirs=rule.dirs,
+                rule_skip=rule.skip,
+                rule_once=rule.once,
             )
 
             tasks.append(task)
@@ -181,22 +206,39 @@ def _generate_patch_context(patch_path: str) -> str:
     pa = PatchAnalyzer(patch_path)
     patch_summary = ""
     if pa.analyze():
+        patch_summary += pa.verboseRuntimeSummary()
         patch_summary += pa.verboseFrontEndSummary()
         patch_summary += pa.verboseTestSummary()
     return patch_summary
 
 
 def _map_applicable_rules_to_diffs(
-    rules: dict[str, list[str]], diff: Diff
-) -> dict[str, str]:
-    mapping = dict[str, str]()
+    rules: list[DevagentRule], diff: Diff
+) -> list[tuple[DevagentRule, str]]:
+    changed_files = [os.path.join(diff.project, file.file) for file in diff.files]
 
-    combined_diff = _combine_diff(diff)
-    applicable_rules = _get_relevant_rules(rules, diff)
+    relevant_rules = [
+        rule
+        for rule in rules
+        if any(_is_rule_applicable(rule, file) for file in changed_files)
+    ]
 
-    mapping.update({rule: combined_diff for rule in applicable_rules})
+    combined_diff = "\n\n".join([file.diff for file in diff.files])
 
-    return mapping
+    return [(rule, combined_diff) for rule in relevant_rules]
+
+
+def _is_rule_applicable(rule: DevagentRule, file: str) -> bool:
+    for dir in rule.skip:
+        if is_subpath(dir, file):
+            print(f"skipping {file} for rule {rule}")
+            return False
+
+    for dir in rule.dirs:
+        if is_subpath(dir, file):
+            return True
+
+    return False
 
 
 def _rule_abspath(wd: str, rule: str) -> str:
@@ -205,29 +247,6 @@ def _rule_abspath(wd: str, rule: str) -> str:
     rule_abspath = abspath_join(rules_dir, rule)
 
     return rule_abspath
-
-
-def _get_relevant_rules(rules: dict[str, list[str]], diff: Diff) -> set[str]:
-    applicable_rules = set[str]()
-
-    for file in diff.files:
-        file_path = os.path.join(diff.project, file.file)
-        for rule, rule_dirs in rules.items():
-            for rule_dir in rule_dirs:
-                if rule_dir == os.path.commonpath([rule_dir, file_path]):
-                    applicable_rules.add(rule)
-                    break
-
-    return applicable_rules
-
-
-def _combine_diff(diff: Diff) -> str:
-    diffs = list[str]()
-
-    for file in diff.files:
-        diffs.append(file.diff)
-
-    return "\n\n".join(diffs)
 
 
 def _rules_root(wd: str) -> str:
@@ -286,78 +305,6 @@ def _emit_content(wd: str, subdir: str, task_id: str, content: str) -> str:
     assert os.path.exists(path), f"Emitted file {path} does not exist"
 
     return path
-
-
-def _load_rules_from_config(cfg: str) -> dict[str, set[str]]:
-    lines = cfg.split("\n")
-
-    review_rules = dict[str, set[str]]()
-
-    for raw_line in lines:
-        line = raw_line.strip()
-
-        if line.startswith("#"):
-            continue
-
-        parsed_line = line.split()
-
-        if len(parsed_line) < 2:
-            continue
-
-        dir = parsed_line[0].removeprefix("/").removesuffix("/")
-        rules = parsed_line[1:]
-        existing_rules = review_rules.get(dir, set())
-        existing_rules.update(rules)
-        review_rules.update({dir: existing_rules})
-    return review_rules
-
-
-def _load_rules_from_root(project_root: str) -> dict[str, set[str]]:
-    assert os.path.exists(
-        project_root
-    ), f"No project root {project_root} for development rules was found"
-
-    review_rules = dict[str, set[str]]()
-
-    rules_config = abspath_join(project_root, ".REVIEW_RULES")
-    assert os.path.exists(
-        rules_config
-    ), f"No config file {rules_config} was found in the project root {project_root}"
-
-    with open(rules_config) as cfg:
-        content = cfg.read()
-        review_rules = _load_rules_from_config(content)
-
-    return review_rules
-
-
-def _remove_non_existing_dirs(
-    wd: str, review_rules: dict[str, set[str]]
-) -> dict[str, set[str]]:
-    filtered_rules = dict()
-
-    for dir, rules in review_rules.items():
-        dir_path = abspath_join(wd, dir)
-        if not os.path.exists(dir_path):
-            continue
-
-        filtered_rules.update({dir: rules})
-
-    return filtered_rules
-
-
-def _invert_loaded_rules(review_rules: dict[str, set[str]]) -> dict[str, list[str]]:
-    inverted_rules = dict[str, list[str]]()
-
-    for dir, rules in review_rules.items():
-        for rule in rules:
-            dirs = inverted_rules.get(rule, list())
-            superdirs = [d for d in dirs if d == os.path.commonpath([d, dir])]
-            if len(superdirs) == 0:
-                dirs.append(dir)
-            inverted_rules.update({rule: dirs})
-
-    return inverted_rules
 
 
 def _get_revision(root: str) -> str:
